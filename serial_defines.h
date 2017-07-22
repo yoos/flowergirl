@@ -1,3 +1,12 @@
+#ifndef _SERIAL_DEFINES_H_
+#define _SERIAL_DEFINES_H
+
+/* Packet Structure
+ * [ WRITEFLAG || PAYLOAD SIZE(4bit)] [INSTRUCTION BASE] [INSTRUCTION] [PAYLOAD (0-16 bytes)] [CHECKSUM Fletcher 16(2)]
+ * Ex: Write Current Kp value
+ * 0x84 0x05 0x00 0x00 0x00 0x00 0x00 CHECKSUM1 CHECKSUM0
+ */
+
 #define WRITE_MASK		0x80	// Write flag mask
 #define PAYLOAD_OFFSET	3		// Payload offset in packet
 
@@ -72,3 +81,4 @@
 #define P_QUAD_COUNTS	0x0A			// Quadrature counts				[R , counts]
 
 
+#endif
