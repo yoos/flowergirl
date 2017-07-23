@@ -13,7 +13,7 @@ import threading
 import time
 
 # Left and right motors, #1 through 3 front to rear
-class Motor(enum.Enum):
+class MotorIndex(enum.Enum):
     L1 = 0
     L2 = 1
     L3 = 2
@@ -43,12 +43,12 @@ class Flowergirl(object):
 
     # All desired motor values should be set together by the controller
     def set_motors(self, l1, l2, l3, r1, r2, r3):
-        self.motor_values[Motor.L1] = l1
-        self.motor_values[Motor.L2] = l2
-        self.motor_values[Motor.L3] = l3
-        self.motor_values[Motor.R1] = r1
-        self.motor_values[Motor.R2] = r2
-        self.motor_values[Motor.R3] = r3
+        self.motor_values[MotorIndex.L1] = l1
+        self.motor_values[MotorIndex.L2] = l2
+        self.motor_values[MotorIndex.L3] = l3
+        self.motor_values[MotorIndex.R1] = r1
+        self.motor_values[MotorIndex.R2] = r2
+        self.motor_values[MotorIndex.R3] = r3
 
     # Motor commands are sent at a fixed frequency by the controller
     def _command_motor(self, index):
