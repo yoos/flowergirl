@@ -141,15 +141,11 @@ class Flowergirl(object):
                         break
 
 if __name__ == "__main__":
-    print("FLOWERS EVERYWHERE! <3")
+    print("FLOWER TIME <3")
     print("")
-    print("               ____          ___           __----__   _/\\")
-    print("            _/^ __ ^\\_    /~^_/ |       )/^        ^-^ _/")
-    print("         _/^ _/^  ^\\_ ^\\ | ./  /~      /(            _/\\.")
-    print("       _/^_/^--_     ^\\_^\\-__-~      _/( \\         _/  ./")
-    print("     ./^_/|  \\_ ~\\      \\_^\\_      /^ _(  ~-_    _/ \\./\\")
-    print("   _/^_/   \\_  ~\\ \\      ^\\__^\\../^_/^ )\\    ~~~~    _\\/")
-    print("  <__/       ~\\__\\|         ^\\.__./^      ~---____--~ ~\\")
+    with open("robot_banner.txt") as f:
+        for l in f.readlines():
+            sys.stdout.write(l)
     print("")
 
     f = Flowergirl()
