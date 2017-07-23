@@ -4,6 +4,7 @@ Spam Flowergirl with control inputs derived from joystick values
 """
 
 import evdev
+import json
 import signal
 import socket
 import sys
@@ -28,6 +29,9 @@ class Joystick(object):
         self.stopflag = False
         self.device = self.get_device()
         self.debug = debug
+
+        # Comm socket
+        self.sock = None
 
         # Values buffer
         self.x = JoyValue('stick_x', 0.0, -512, 1./512)
@@ -84,9 +88,24 @@ class Joystick(object):
             except BlockingIOError as e:
                 time.sleep(0.001)
 
+    def connect(self, host="flowergirl", port=55000):
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.settimeout(0.1)
+
+        try:
+            self.sock.connect((host, port))
+        except Exception as e:
+            print("ERROR: {}".format(e))
+            sys.exit(-1)
+
     # Spam the flowergirl with command values
-    def comm(self):
-        raise NotImplementedError
+    def run_comm(self):
+        while not self.stopflag:
+            cmd = json.dumps({"fwd": self.y.value, "yaw": self.z.value, "cannon": self.thumb.value}).encode()
+            s = self.sock.sendall(cmd)
+            time.sleep(0.01)
+
+        self.sock.close()
 
 if __name__ == "__main__":
     print("FLOWER POWER! <3")
@@ -98,7 +117,11 @@ if __name__ == "__main__":
 
     j = Joystick()
 
+    print("Connecting to Flowergirl...")
+    j.connect()
+
     th_joystick = threading.Thread(target=j.run_joystick)
+    th_comm = threading.Thread(target=j.run_comm)
 
     def sig_handler(signal, frame):
         j.stop()
@@ -106,5 +129,8 @@ if __name__ == "__main__":
 
     print("Ctrl+C to stop")
     th_joystick.start()
+    th_comm.start()
+
     th_joystick.join()
+    th_comm.join()
 
