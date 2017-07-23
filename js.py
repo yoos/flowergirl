@@ -90,6 +90,11 @@ class Joystick(object):
 
 if __name__ == "__main__":
     print("FLOWER POWER! <3")
+    print("")
+    with open("js_banner.txt") as f:
+        for l in f.readlines():
+            sys.stdout.write(l)
+    print("")
 
     j = Joystick()
 
