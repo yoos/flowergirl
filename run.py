@@ -3,8 +3,10 @@
 FLOWERGIRL
 """
 
+import asyncio
 import enum
 import errno
+import functools
 import json
 import signal
 import socket
@@ -35,13 +37,15 @@ class ControlState(enum.Enum):
     YAW = 6
 
 class Flowergirl(object):
-    def __init__(self, leg_left_forward,
+    def __init__(self, loop,
+                       leg_left_forward,
                        leg_left_center,
                        leg_left_rear,
                        leg_right_forward,
                        leg_right_center,
                        leg_right_rear,
                        debug=False):
+        self._loop = loop   # Event loop
         self.cmd_fwd = 0.0   # [-1, 1]
         self.cmd_yaw = 0.0   # [-1, 1]
         self.cmd_cannon  = False
@@ -50,6 +54,7 @@ class Flowergirl(object):
         self.state = ControlState.ESTOP
         self.step = 0   # Switch between "left" and "right" steps
         self.stopflag = False
+        self.watchdog_time = 0
         self.debug = debug
 
         # Comm socket
@@ -90,19 +95,19 @@ class Flowergirl(object):
         self.legs[LegIndex.R3].set_pos(r3)
 
     def set_state(self, state):
+        if self.state == state:
+            return
         print("[{:.3f}] State: {} -> {}".format(time.time(), self.state, state))
         self.state = state
 
+    @asyncio.coroutine
     def state_estop(self):
-        try:
-            self.legs[LegIndex.L1].estop()
-            self.legs[LegIndex.L2].estop()
-            self.legs[LegIndex.L3].estop()
-            self.legs[LegIndex.R1].estop()
-            self.legs[LegIndex.R2].estop()
-            self.legs[LegIndex.R3].estop()
-        except NotImplementedError:
-            pass
+        yield from self.legs[LegIndex.L1].estop()
+        yield from self.legs[LegIndex.L2].estop()
+        yield from self.legs[LegIndex.L3].estop()
+        yield from self.legs[LegIndex.R1].estop()
+        yield from self.legs[LegIndex.R2].estop()
+        yield from self.legs[LegIndex.R3].estop()
 
         self.cmd_fwd = 0.0
         self.cmd_yaw = 0.0
@@ -111,38 +116,41 @@ class Flowergirl(object):
         if not self.cmd_estop:
             self.set_state(ControlState.STANDBY)
 
+    @asyncio.coroutine
     def state_standby(self):
         if self.cmd_cannon:
             self.set_state(ControlState.INIT)
 
+    @asyncio.coroutine
     def state_init(self):
         """Zero the legs by turning them backwards until the toes hit the ground. Open-loop."""
-        try:
-            self.set_leg_velocities(0, 0, -1, 0, 0, -1)
-            time.sleep(1)
-            self.set_leg_velocities(0, -1, -1, 0, -1, -1)
-            time.sleep(1)
-            self.set_leg_velocities(-1, -1, -1, -1, -1, -1)
-            time.sleep(1)
-            self.set_leg_velocities(-1, -1, 0, -1, -1, 0)
-            time.sleep(1)
-            self.set_leg_velocities(-1, 0, 0, -1, 0, 0)
-            time.sleep(3)
-            self.set_leg_velocities(0, 0, 0, 0, 0, 0)
-        except NotImplementedError:
-            pass
+        # Watchdog and E-stop don't work in this state due to the simplistic sleeps.
+        self.set_leg_velocities(0, 0, -1, 0, 0, -1)
+        yield from asyncio.sleep(1)
+        self.set_leg_velocities(0, -1, -1, 0, -1, -1)
+        yield from asyncio.sleep(1)
+        self.set_leg_velocities(-1, -1, -1, -1, -1, -1)
+        yield from asyncio.sleep(1)
+        self.set_leg_velocities(-1, -1, 0, -1, -1, 0)
+        yield from asyncio.sleep(1)
+        self.set_leg_velocities(-1, 0, 0, -1, 0, 0)
+        yield from asyncio.sleep(3)
+        self.set_leg_velocities(0, 0, 0, 0, 0, 0)
+
         for leg in self.legs.values():
             leg.set_zero()
 
         self.set_state(ControlState.SIT)
 
+    @asyncio.coroutine
     def state_sit(self):
         for leg in self.legs.values():
-            leg.move_to(pi/2, 1)
+            yield from leg.move_to(pi/2, 1)
 
         if self.cmd_trigger and all([leg.on_setpoint for leg in self.legs.values()]):
             self.set_state(ControlState.STAND)
 
+    @asyncio.coroutine
     def state_stand(self):
         for leg in self.legs.values():
             leg.move_to(3*pi/2, 0.5)
@@ -154,6 +162,7 @@ class Flowergirl(object):
         elif abs(self.cmd_yaw) > 0.05:
             self.set_state(ControlState.YAW)
 
+    @asyncio.coroutine
     def state_walk(self):
         # Scale step arc length (i.e., between foot touchdown and liftoff points) by forward command
         scale_left = min(max(self.cmd_fwd - self.cmd_yaw, 1), -1)
@@ -189,6 +198,7 @@ class Flowergirl(object):
         if abs(self.cmd_fwd) < 0.05:
             self.set_state(ControlState.STAND)
 
+    @asyncio.coroutine
     def state_yaw(self):
         # Scale step arc length (i.e., between foot touchdown and liftoff points) by forward command
         scale = self.cmd_yaw
@@ -217,8 +227,16 @@ class Flowergirl(object):
         if abs(self.cmd_fwd) > 0.05 or abs(self.cmd_yaw) < 0.05:
             self.set_state(ControlState.STAND)
 
-    # Run controller
+    def pet_watchdog(self):
+        self.watchdog_time = time.time()
+
+    @property
+    def watchdog_alive(self):
+        return not time.time() - self.watchdog_time > 1
+
+    @asyncio.coroutine
     def run_control(self):
+        """High-level command state machine"""
         self.set_state(ControlState.ESTOP)
 
         state_funcs = {ControlState.ESTOP:   self.state_estop,
@@ -229,88 +247,71 @@ class Flowergirl(object):
                        ControlState.WALK:    self.state_walk,
                        ControlState.YAW:     self.state_yaw}
 
+        last_est_time = time.time()
+        loop_count = 0
         while not self.stopflag:
-            state_funcs[self.state]()
-            time.sleep(0.02)   # TODO(syoo): proper freq control
+            now = time.time()
+            loop_count += 1
+            if now - last_est_time > 1:
+                print("[{:.3f}] Command loop freq: {} Hz".format(now, loop_count))
+                last_est_time = now
+                loop_count = 0
 
-    def bind_socket(self, host="", port=55000):
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.sock.settimeout(0.2)
+            # Unconditionally set Estop if commanded
+            if not self.watchdog_alive:
+                self.cmd_estop = True
+            if self.cmd_estop:
+                self.set_state(ControlState.ESTOP)
 
-        try:
-            self.sock.bind((host, port))
-        except Exception as e:
-            print("ERROR: {}".format(e))
-            sys.exit(-1)
+            yield from state_funcs[self.state]()
+            yield from asyncio.sleep(0.005)   # TODO(syoo): do this properly
 
-    # Listen for incoming command connections and data
-    def run_comm(self):
+    @asyncio.coroutine
+    def handle_recv(self, reader, writer):
+        """Command connection callback"""
+        peername = writer.get_extra_info('peername')
+        print("Received connection from {}".format(peername))
+        # TODO(syoo): Limit to one connection
+
+        self.cmd_estop = True
         while not self.stopflag:
-            self.bind_socket()
-            self.sock.listen(1)
-            self.set_state(ControlState.ESTOP)
+            r = yield from reader.read(1024)
 
-            print("==> Waiting for command connection")
-            while not self.stopflag:
-                try:
-                    conn, addr = self.sock.accept()
-                    print("==> Connected!")
-                    break
-                except socket.timeout:
-                    pass
+            if len(r) == 0:
+                print("Client {} closed connection".format(peername))
+                break
 
-            while not self.stopflag:
-                try:
-                    r = conn.recv(1024)
+            if self.debug:
+                print("Received: {}".format(r))
 
-                    if len(r) == 0:
-                        self.sock.close()
-                        print("==> Client closed connection. Disconnected.")
-                        break
+            try:
+                cmd = json.loads(r)
 
-                    if self.debug:
-                        print("Received: {}".format(r))
+                # Sanity check
+                if abs(cmd["fwd"]) > 1.0:
+                    print("ERROR: Forward velocity must be within [-1, 1]")
+                elif abs(cmd["yaw"]) > 1.0:
+                    print("ERROR: Yaw velocity must be within [-1, 1]")
+                elif type(cmd["cannon"]) is not int:
+                    print("ERROR: Cannon command must be a boolean")
+                elif type(cmd["estop"]) is not bool:
+                    print("ERROR: Estop command must be a boolean")
+                    self.cmd_estop = True   # Assume Estop if input is bad
+                else:
+                    self.cmd_fwd = cmd["fwd"]
+                    self.cmd_yaw = cmd["yaw"]
+                    self.cmd_cannon = cmd["cannon"]
+                    self.cmd_trigger = cmd["trigger"]
+                    self.cmd_estop = cmd["estop"]
 
-                    cmd = json.loads(r)
+                self.pet_watchdog()
 
-                    # Sanity check
-                    if abs(cmd["fwd"]) > 1.0:
-                        print("ERROR: Forward velocity must be within [-1, 1]")
-                    elif abs(cmd["yaw"]) > 1.0:
-                        print("ERROR: Yaw velocity must be within [-1, 1]")
-                    elif type(cmd["cannon"]) is not int:
-                        print("ERROR: Cannon command must be a boolean")
-                    elif type(cmd["estop"]) is not bool:
-                        print("ERROR: Estop command must be a boolean")
-                        self.cmd_estop = True   # Assume Estop if input is bad
-                    else:
-                        self.cmd_fwd = cmd["fwd"]
-                        self.cmd_yaw = cmd["yaw"]
-                        self.cmd_cannon = cmd["cannon"]
-                        self.cmd_trigger = cmd["trigger"]
-                        self.cmd_estop = cmd["estop"]
+                #self.print_cmds()
+            except json.JSONDecodeError as e:
+                print("JSON decode error: {}".format(e))
 
-                    #self.print_cmds()
-
-                    # Unconditionally set Estop if commanded
-                    if self.cmd_estop:
-                        self.set_state(ControlState.ESTOP)
-
-                except socket.timeout:
-                    self.sock.close()
-                    print("==> Haven't received data in a while. Disconnected.")
-                    break
-                except socket.error as e:
-                    err = e.args[0]
-                    if err == errno.EAGAIN or err == errno.EWOULDBLOCK:
-                        time.sleep(0.001)
-                        continue
-                    else:
-                        self.sock.close()
-                        print("ERROR: {}".format(e))
-                        print("==> Disconnected")
-                        break
+        self.cmd_estop = True
+        writer.close()
 
 if __name__ == "__main__":
     print("FLOWER TIME <3")
@@ -320,33 +321,37 @@ if __name__ == "__main__":
             sys.stdout.write(l)
     print("")
 
-    mc1 = MotorSerial("/dev/m1", 230400, 1)
-    mc2 = MotorSerial("/dev/m2", 230400, 1)
-    mc3 = MotorSerial("/dev/m3", 230400, 1)
+    loop = asyncio.get_event_loop()
 
-    l1 = Leg("L1", Motor(mc1, 0))
-    l2 = Leg("L2", Motor(mc2, 0))
-    l3 = Leg("L3", Motor(mc3, 0))
-    r1 = Leg("R1", Motor(mc1, 1), True)
-    r2 = Leg("R2", Motor(mc2, 1), True)
-    r3 = Leg("R3", Motor(mc3, 1), True)
+    #mc1 = MotorSerial("/dev/m1", 230400, 1)
+    #mc2 = MotorSerial("/dev/m2", 230400, 1)
+    #mc3 = MotorSerial("/dev/m3", 230400, 1)
+    mct = MotorSerial("/dev/ttyACM0", 921600, 1)   # DEBUG(syoo)
 
-    f = Flowergirl(l1, l2, l3, r1, r2, r3)
+    l1 = Leg("L1", Motor(mct, 0))
+    l2 = Leg("L2", Motor(mct, 0))
+    l3 = Leg("L3", Motor(mct, 0))
+    r1 = Leg("R1", Motor(mct, 1), True)
+    r2 = Leg("R2", Motor(mct, 1), True)
+    r3 = Leg("R3", Motor(mct, 1), True)
 
-    print("Starting command server...")
-    f.bind_socket()
+    f = Flowergirl(loop, l1, l2, l3, r1, r2, r3)
 
-    th_control = threading.Thread(target=f.run_control)
-    th_comm = threading.Thread(target=f.run_comm)
+    control_task = asyncio.Task(f.run_control())
+    comm_srv = loop.run_until_complete(asyncio.start_server(f.handle_recv, "", 55000, loop=loop))
+    print("Waiting for command connection on {}".format(comm_srv.sockets[0].getsockname()))
 
     def sig_handler(signal, frame):
-        f.stop()
+        control_task.cancel()
+        comm_srv.close()
+        loop.stop()
     signal.signal(signal.SIGINT, sig_handler)
 
-    print("Ctrl+C to stop")
-    th_control.start()
-    th_comm.start()
-
-    th_control.join()
-    th_comm.join()
+    try:
+        print("Entering event loop")
+        print("Ctrl+C to stop")
+        loop.run_until_complete(control_task)
+    finally:
+        print("Closing event loop")
+        loop.close()
 
