@@ -45,7 +45,10 @@ class Flowergirl(object):
         self.cmd_fwd = 0.0   # [-1, 1]
         self.cmd_yaw = 0.0   # [-1, 1]
         self.cmd_cannon  = False
+        self.cmd_trigger = False   # Used to toggle between sit/stand
         self.cmd_estop  = True
+        self.state = ControlState.ESTOP
+        self.step = 0   # Switch between "left" and "right" steps
         self.stopflag = False
         self.debug = debug
 
@@ -60,6 +63,9 @@ class Flowergirl(object):
                      LegIndex.R3: leg_right_rear}
 
     def stop(self):
+        for leg in self.legs.values():
+            leg.stop()
+
         print("no more flowers :(")
         self.stopflag = True
 
@@ -83,24 +89,11 @@ class Flowergirl(object):
         self.legs[LegIndex.R2].set_pos(r2)
         self.legs[LegIndex.R3].set_pos(r3)
 
-    def set_actuators(self, cmd_fwd, cmd_yaw, cmd_cannon):
-        # Sanity check
-        if abs(cmd_fwd) > 1.0:
-            print("ERROR: Forward velocity must be within [-1, 1]")
-            return
-        elif abs(cmd_yaw) > 1.0:
-            print("ERROR: Yaw velocity must be within [-1, 1]")
-            return
-        elif type(cmd_cannon) is not bool:
-            print("ERROR: Cannon command must be a boolean")
-            return
-
-        self.cmd_fwd = cmd_fwd
-        self.cmd_yaw = cmd_yaw
-        self.cmd_cannon = cmd_cannon
+    def set_state(self, state):
+        print("State: {} -> {}".format(self.state, state))
+        self.state = state
 
     def state_estop(self):
-        print("State: ESTOP")
         try:
             self.legs[LegIndex.L1].estop()
             self.legs[LegIndex.L2].estop()
@@ -116,48 +109,117 @@ class Flowergirl(object):
         self.cmd_cannon = 0
 
         if not self.cmd_estop:
-            self.state = ControlState.STANDBY
+            self.set_state(ControlState.STANDBY)
 
     def state_standby(self):
-        print("State: STANDBY")
-
         if self.cmd_cannon:
-            self.state = ControlState.INIT
+            self.set_state(ControlState.INIT)
 
     def state_init(self):
         """Zero the legs by turning them backwards until the toes hit the ground. Open-loop."""
-        print("State: INIT")
-
         try:
+            self.set_leg_velocities(0, 0, -1, 0, 0, -1)
+            time.sleep(1)
+            self.set_leg_velocities(0, -1, -1, 0, -1, -1)
+            time.sleep(1)
             self.set_leg_velocities(-1, -1, -1, -1, -1, -1)
+            time.sleep(1)
+            self.set_leg_velocities(-1, -1, 0, -1, -1, 0)
+            time.sleep(1)
+            self.set_leg_velocities(-1, 0, 0, -1, 0, 0)
+            time.sleep(3)
+            self.set_leg_velocities(0, 0, 0, 0, 0, 0)
         except NotImplementedError:
             pass
-        time.sleep(2)
         for leg in self.legs.values():
             leg.set_zero()
 
-        self.state = ControlState.SIT
+        self.set_state(ControlState.SIT)
 
     def state_sit(self):
-        print("State: SIT")
         for leg in self.legs.values():
-            leg.set_pos(pi/2)
+            leg.move_to(pi/2, 1)
+
+        if self.cmd_trigger and all([leg.on_setpoint for leg in self.legs.values()]):
+            self.set_state(ControlState.STAND)
 
     def state_stand(self):
-        print("State: STAND")
-        raise NotImplementedError
+        for leg in self.legs.values():
+            leg.move_to(3*pi/2, 0.5)
+
+        if self.cmd_trigger and all([leg.on_setpoint for leg in self.legs.values()]):
+            self.set_state(ControlState.SIT)
+        elif abs(self.cmd_fwd) > 0.05:
+            self.set_state(ControlState.WALK)
+        elif abs(self.cmd_yaw) > 0.05:
+            self.set_state(ControlState.YAW)
 
     def state_walk(self):
-        print("State: WALK")
-        raise NotImplementedError
+        # Scale step arc length (i.e., between foot touchdown and liftoff points) by forward command
+        scale_left = min(max(self.cmd_fwd - self.cmd_yaw, 1), -1)
+        scale_right = min(max(self.cmd_fwd + self.cmd_yaw, 1), -1)
+
+        # If we get too close to negative scaling, we should switch to yaw mode.
+        if scale_left < 0.05 or scale_right < 0.05:
+            self.set_state(ControlState.STAND)
+            return
+
+        gnd_arc = pi/3   # Max arc length
+        gnd_vel = 0.5   # Max velocity on ground
+        lift_vel = 2   # Max lift velocity
+
+        if self.step is 0:
+            self.legs[LegIndex.L1].move_to(3*pi/2 + gnd_arc/2 * scale_left,  gnd_vel  * scale_left)
+            self.legs[LegIndex.L2].move_to(3*pi/2 - gnd_arc/2 * scale_left,  lift_vel * scale_left)
+            self.legs[LegIndex.L3].move_to(3*pi/2 + gnd_arc/2 * scale_left,  gnd_vel  * scale_left)
+            self.legs[LegIndex.R1].move_to(3*pi/2 - gnd_arc/2 * scale_right, lift_vel * scale_right)
+            self.legs[LegIndex.R2].move_to(3*pi/2 + gnd_arc/2 * scale_right, gnd_vel  * scale_right)
+            self.legs[LegIndex.R3].move_to(3*pi/2 - gnd_arc/2 * scale_right, lift_vel * scale_right)
+        else:
+            self.legs[LegIndex.L1].move_to(3*pi/2 - gnd_arc/2 * scale_left,  lift_vel * scale_left)
+            self.legs[LegIndex.L2].move_to(3*pi/2 + gnd_arc/2 * scale_left,  gnd_vel  * scale_left)
+            self.legs[LegIndex.L3].move_to(3*pi/2 - gnd_arc/2 * scale_left,  lift_vel * scale_left)
+            self.legs[LegIndex.R1].move_to(3*pi/2 + gnd_arc/2 * scale_right, gnd_vel  * scale_right)
+            self.legs[LegIndex.R2].move_to(3*pi/2 - gnd_arc/2 * scale_right, lift_vel * scale_right)
+            self.legs[LegIndex.R3].move_to(3*pi/2 + gnd_arc/2 * scale_right, gnd_vel  * scale_right)
+
+        if all([leg.on_setpoint for leg in self.legs.values()]):
+            self.step = 1 - self.step   # Switch steps
+
+        if abs(self.cmd_fwd) < 0.05:
+            self.set_state(ControlState.STAND)
 
     def state_yaw(self):
-        print("State: YAW")
-        raise NotImplementedError
+        # Scale step arc length (i.e., between foot touchdown and liftoff points) by forward command
+        scale = self.cmd_yaw
+        gnd_arc = pi/3   # Max arc length
+        gnd_vel = 0.5   # Max velocity on ground
+        lift_vel = 2   # Max lift velocity
+
+        if self.step is 0:
+            self.legs[LegIndex.L1].move_to(3*pi/2 - gnd_arc/2 * scale, -gnd_vel  * scale)
+            self.legs[LegIndex.L2].move_to(3*pi/2 + gnd_arc/2 * scale, -lift_vel * scale)
+            self.legs[LegIndex.L3].move_to(3*pi/2 - gnd_arc/2 * scale, -gnd_vel  * scale)
+            self.legs[LegIndex.R1].move_to(3*pi/2 - gnd_arc/2 * scale,  lift_vel * scale)
+            self.legs[LegIndex.R2].move_to(3*pi/2 + gnd_arc/2 * scale,  gnd_vel  * scale)
+            self.legs[LegIndex.R3].move_to(3*pi/2 - gnd_arc/2 * scale,  lift_vel * scale)
+        else:
+            self.legs[LegIndex.L1].move_to(3*pi/2 + gnd_arc/2 * scale, -lift_vel * scale)
+            self.legs[LegIndex.L2].move_to(3*pi/2 - gnd_arc/2 * scale, -gnd_vel  * scale)
+            self.legs[LegIndex.L3].move_to(3*pi/2 + gnd_arc/2 * scale, -lift_vel * scale)
+            self.legs[LegIndex.R1].move_to(3*pi/2 + gnd_arc/2 * scale,  gnd_vel  * scale)
+            self.legs[LegIndex.R2].move_to(3*pi/2 - gnd_arc/2 * scale,  lift_vel * scale)
+            self.legs[LegIndex.R3].move_to(3*pi/2 + gnd_arc/2 * scale,  gnd_vel  * scale)
+
+        if all([leg.on_setpoint for leg in self.legs.values()]):
+            self.step = 1 - self.step   # Switch steps
+
+        if abs(self.cmd_fwd) > 0.05 or abs(self.cmd_yaw) < 0.05:
+            self.set_state(ControlState.STAND)
 
     # Run controller
     def run_control(self):
-        self.state = ControlState.ESTOP
+        self.set_state(ControlState.ESTOP)
 
         state_funcs = {ControlState.ESTOP:   self.state_estop,
                        ControlState.STANDBY: self.state_standby,
@@ -188,7 +250,7 @@ class Flowergirl(object):
         while not self.stopflag:
             self.bind_socket()
             self.sock.listen(1)
-            self.state = ControlState.ESTOP
+            self.set_state(ControlState.ESTOP)
 
             print("==> Waiting for command connection")
             while not self.stopflag:
@@ -212,15 +274,29 @@ class Flowergirl(object):
                         print("Received: {}".format(r))
 
                     cmd = json.loads(r)
-                    self.cmd_fwd = cmd["fwd"]
-                    self.cmd_yaw = cmd["yaw"]
-                    self.cmd_cannon = cmd["cannon"]
-                    self.cmd_estop = cmd["estop"]
 
-                    self.print_cmds()
+                    # Sanity check
+                    if abs(cmd["fwd"]) > 1.0:
+                        print("ERROR: Forward velocity must be within [-1, 1]")
+                    elif abs(cmd["yaw"]) > 1.0:
+                        print("ERROR: Yaw velocity must be within [-1, 1]")
+                    elif type(cmd["cannon"]) is not int:
+                        print("ERROR: Cannon command must be a boolean")
+                    elif type(cmd["estop"]) is not bool:
+                        print("ERROR: Estop command must be a boolean")
+                        self.cmd_estop = True   # Assume Estop if input is bad
+                    else:
+                        self.cmd_fwd = cmd["fwd"]
+                        self.cmd_yaw = cmd["yaw"]
+                        self.cmd_cannon = cmd["cannon"]
+                        self.cmd_trigger = cmd["trigger"]
+                        self.cmd_estop = cmd["estop"]
 
+                    #self.print_cmds()
+
+                    # Unconditionally set Estop if commanded
                     if self.cmd_estop:
-                        self.state = ControlState.ESTOP
+                        self.set_state(ControlState.ESTOP)
 
                 except socket.timeout:
                     self.sock.close()
@@ -249,12 +325,12 @@ if __name__ == "__main__":
     mc2 = MotorSerial("/dev/m2", 230400, 1)
     mc3 = MotorSerial("/dev/m3", 230400, 1)
 
-    l1 = Leg(Motor(mc1, 0))
-    l2 = Leg(Motor(mc2, 0))
-    l3 = Leg(Motor(mc3, 0))
-    r1 = Leg(Motor(mc1, 1), True)
-    r2 = Leg(Motor(mc2, 1), True)
-    r3 = Leg(Motor(mc3, 1), True)
+    l1 = Leg("L1", Motor(mc1, 0))
+    l2 = Leg("L2", Motor(mc2, 0))
+    l3 = Leg("L3", Motor(mc3, 0))
+    r1 = Leg("R1", Motor(mc1, 1), True)
+    r2 = Leg("R2", Motor(mc2, 1), True)
+    r3 = Leg("R3", Motor(mc3, 1), True)
 
     f = Flowergirl(l1, l2, l3, r1, r2, r3)
 
