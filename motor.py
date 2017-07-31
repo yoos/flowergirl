@@ -11,6 +11,8 @@ import csv
 import binascii
 from datetime import datetime
 
+from serial_defines import *
+
 def fletcher16(dat):
     check0 = 0
     check1 = 0
@@ -33,12 +35,19 @@ class MotorSerial(object):
     def read_bytes(self, data_class, data_inst, payload_len):
         dat = bytearray([0x00, data_class, data_inst])
         dat = append_checksum(dat)
+        print("Wrote {} bytes".format(len(dat)))
         self.ser.write(dat)
-        return self.ser.read((5 + payload_len))
+        print("Reading...")
+        r = self.ser.read(5 + payload_len)
+
+        if len(r) != 5 + payload_len:
+            raise RuntimeError("Expected {} bytes but only read {}".format(5+payload_len, len(r)))
+
+        return r
 
     # Read unsigned uint8_t
     def read_u8(self, data_class, data_inst):
-        bytes = self.read_bytes(data_class, data_inst, 1)
+        r = self.read_bytes(data_class, data_inst, 1)
         return bytes[3]
 
     # Read unsigned uint16_t
@@ -86,7 +95,7 @@ class MotorSerial(object):
     def write_f32(self, data_class, data_inst, field):
         dat = bytearray([0x84, data_class, data_inst])
         check = fletcher16(dat)
-        print(check)
+        print("[{:.3f}] Checksum: {}".format(time.time(), check))
         dfu = bytearray(struct.pack('>f', field))
         for d in dfu:
             dat.append(d)
@@ -100,40 +109,40 @@ class Motor(object):
         self._index = index   # Each controller controls two motors,
 
     def estop(self):
-        self.set_cur(0)
+        self._mser.write_u32(SYSTEM_STATE_BASE, SYS_OUTPUT_ENABLE, 0)
+        # TODO(syoo): reenable?
 
     def get_cur(self):
         """Get current in amps"""
-        raise NotImplementedError
+        return self._mser.read_f32(CURRENT_BASE, I_MEASURED)
 
     def get_vel(self):
         """Get velocity in radians/second"""
-        raise NotImplementedError
+        return self._mser.read_f32(V_BASE, V_MEASURED)
 
     def get_pos(self):
         """Get position in radians"""
-        return 1.23   # TODO(syoo)
+        return self._mser.read_f32(P_BASE, P_MEASURED)
 
     def set_cur(self, cur):
         """Set current in amps"""
-        raise NotImplementedError
+        return self._mser.write_f32(CURRENT_BASE, I_MEASURED, cur)
 
     def set_vel(self, vel):
         """Set velocity in radians/second"""
-        raise NotImplementedError
+        return self._mser.write_f32(V_BASE, V_MEASURED, vel)
 
     def set_pos(self, pos):
         """Set position in radians"""
-        raise NotImplementedError
+        return self._mser.write_f32(P_BASE, P_MEASURED, pos)
 
 def main(port):
-    stest = MotorSerial(port, 230400, 1)
-    stest.write_f32(0x06, 0x05, -300.0)
+    stest = MotorSerial(port, 460800, 0.1)
 
     while True:
         try:
             t = time.time()
-            pos = float(stest.read_f32(0x08, 0x00)[0])
+            pos = float(stest.read_f32(SYSTEM_STATE_BASE, SYS_DRIVE_STATUS)[0])
         except Exception as e:
             print(str(e))
 

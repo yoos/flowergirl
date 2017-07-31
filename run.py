@@ -90,7 +90,7 @@ class Flowergirl(object):
         self.legs[LegIndex.R3].set_pos(r3)
 
     def set_state(self, state):
-        print("State: {} -> {}".format(self.state, state))
+        print("[{:.3f}] State: {} -> {}".format(time.time(), self.state, state))
         self.state = state
 
     def state_estop(self):
@@ -231,7 +231,6 @@ class Flowergirl(object):
 
         while not self.stopflag:
             state_funcs[self.state]()
-            # TODO(syoo): fwd/yaw to rhex gait control
             time.sleep(0.02)   # TODO(syoo): proper freq control
 
     def bind_socket(self, host="", port=55000):

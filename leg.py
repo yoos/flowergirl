@@ -57,15 +57,6 @@ class Leg(object):
             vel = -vel
         self._motor.set_vel(vel)
 
-    def set_pos(self, pos):
-        """Set position in radians"""
-        if self._reverse:
-            pos = -pos   # TODO(syoo): Is this right?
-        if not self._zeroed:
-            raise RuntimeError("Motor uncalibrated")
-        raw_pos = pos + self._zero
-        raise NotImplementedError
-
     def set_zero(self):
         """Set leg zero angle"""
         self._zero = self._motor.get_pos()
