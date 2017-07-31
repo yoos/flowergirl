@@ -103,7 +103,7 @@ class Joystick(object):
     # Spam the flowergirl with command values
     def run_comm(self):
         while not self.stopflag:
-            cmd = json.dumps({"fwd": self.y.value, "yaw": self.z.value, "cannon": self.thumb.value, "trigger": self.trigger.value, "estop": True if self.throttle.value < 0.8 else False}).encode()
+            cmd = json.dumps({"fwd": self.y.value, "yaw": -self.x.value, "cannon": self.thumb.value, "trigger": self.trigger.value, "estop": True if self.throttle.value < 0.8 else False}).encode()
             s = self.sock.sendall(cmd)
             time.sleep(0.01)
 
