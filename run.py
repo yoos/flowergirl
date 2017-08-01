@@ -100,14 +100,13 @@ class Flowergirl(object):
         print("[{:.3f}] State: {} -> {}".format(time.time(), self.state, state))
         self.state = state
 
-    @asyncio.coroutine
-    def state_estop(self):
-        yield from self.legs[LegIndex.L1].estop()
-        yield from self.legs[LegIndex.L2].estop()
-        yield from self.legs[LegIndex.L3].estop()
-        yield from self.legs[LegIndex.R1].estop()
-        yield from self.legs[LegIndex.R2].estop()
-        yield from self.legs[LegIndex.R3].estop()
+    async def state_estop(self):
+        await self.legs[LegIndex.L1].estop()
+        await self.legs[LegIndex.L2].estop()
+        await self.legs[LegIndex.L3].estop()
+        await self.legs[LegIndex.R1].estop()
+        await self.legs[LegIndex.R2].estop()
+        await self.legs[LegIndex.R3].estop()
 
         self.cmd_fwd = 0.0
         self.cmd_yaw = 0.0
@@ -116,25 +115,26 @@ class Flowergirl(object):
         if not self.cmd_estop:
             self.set_state(ControlState.STANDBY)
 
-    @asyncio.coroutine
-    def state_standby(self):
+    async def state_standby(self):
         if self.cmd_cannon:
             self.set_state(ControlState.INIT)
 
-    @asyncio.coroutine
-    def state_init(self):
+    async def state_init(self):
         """Zero the legs by turning them backwards until the toes hit the ground. Open-loop."""
         # Watchdog and E-stop don't work in this state due to the simplistic sleeps.
         self.set_leg_velocities(0, 0, -1, 0, 0, -1)
-        yield from asyncio.sleep(1)
+        print("[{:.3f}] Zeroing rear legs".format(time.time()))
+        await asyncio.sleep(1)
         self.set_leg_velocities(0, -1, -1, 0, -1, -1)
-        yield from asyncio.sleep(1)
+        print("[{:.3f}] Zeroing center legs".format(time.time()))
+        await asyncio.sleep(1)
         self.set_leg_velocities(-1, -1, -1, -1, -1, -1)
-        yield from asyncio.sleep(1)
+        print("[{:.3f}] Zeroing front legs".format(time.time()))
+        await asyncio.sleep(1)
         self.set_leg_velocities(-1, -1, 0, -1, -1, 0)
-        yield from asyncio.sleep(1)
+        await asyncio.sleep(1)
         self.set_leg_velocities(-1, 0, 0, -1, 0, 0)
-        yield from asyncio.sleep(3)
+        await asyncio.sleep(1)
         self.set_leg_velocities(0, 0, 0, 0, 0, 0)
 
         for leg in self.legs.values():
@@ -142,16 +142,14 @@ class Flowergirl(object):
 
         self.set_state(ControlState.SIT)
 
-    @asyncio.coroutine
-    def state_sit(self):
+    async def state_sit(self):
         for leg in self.legs.values():
-            yield from leg.move_to(pi/2, 1)
+            await leg.move_to(pi/2, 1)
 
         if self.cmd_trigger and all([leg.on_setpoint for leg in self.legs.values()]):
             self.set_state(ControlState.STAND)
 
-    @asyncio.coroutine
-    def state_stand(self):
+    async def state_stand(self):
         for leg in self.legs.values():
             leg.move_to(3*pi/2, 0.5)
 
@@ -162,8 +160,7 @@ class Flowergirl(object):
         elif abs(self.cmd_yaw) > 0.05:
             self.set_state(ControlState.YAW)
 
-    @asyncio.coroutine
-    def state_walk(self):
+    async def state_walk(self):
         # Scale step arc length (i.e., between foot touchdown and liftoff points) by forward command
         scale_left = min(max(self.cmd_fwd - self.cmd_yaw, 1), -1)
         scale_right = min(max(self.cmd_fwd + self.cmd_yaw, 1), -1)
@@ -198,8 +195,7 @@ class Flowergirl(object):
         if abs(self.cmd_fwd) < 0.05:
             self.set_state(ControlState.STAND)
 
-    @asyncio.coroutine
-    def state_yaw(self):
+    async def state_yaw(self):
         # Scale step arc length (i.e., between foot touchdown and liftoff points) by forward command
         scale = self.cmd_yaw
         gnd_arc = pi/3   # Max arc length
@@ -234,8 +230,7 @@ class Flowergirl(object):
     def watchdog_alive(self):
         return not time.time() - self.watchdog_time > 1
 
-    @asyncio.coroutine
-    def run_control(self):
+    async def run_control(self):
         """High-level command state machine"""
         self.set_state(ControlState.ESTOP)
 
@@ -253,7 +248,7 @@ class Flowergirl(object):
             now = time.time()
             loop_count += 1
             if now - last_est_time > 1:
-                print("[{:.3f}] Command loop freq: {} Hz".format(now, loop_count))
+                print("[{:.3f}] Command freq: {} Hz".format(now, loop_count))
                 last_est_time = now
                 loop_count = 0
 
@@ -263,11 +258,10 @@ class Flowergirl(object):
             if self.cmd_estop:
                 self.set_state(ControlState.ESTOP)
 
-            yield from state_funcs[self.state]()
-            yield from asyncio.sleep(0.005)   # TODO(syoo): do this properly
+            await state_funcs[self.state]()
+            await asyncio.sleep(0.005)   # TODO(syoo): do this properly
 
-    @asyncio.coroutine
-    def handle_recv(self, reader, writer):
+    async def handle_recv(self, reader, writer):
         """Command connection callback"""
         peername = writer.get_extra_info('peername')
         print("Received connection from {}".format(peername))
@@ -275,7 +269,7 @@ class Flowergirl(object):
 
         self.cmd_estop = True
         while not self.stopflag:
-            r = yield from reader.read(1024)
+            r = await reader.read(1024)
 
             if len(r) == 0:
                 print("Client {} closed connection".format(peername))
