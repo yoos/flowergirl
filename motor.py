@@ -112,11 +112,11 @@ class Motor(object):
         self.stopflag = False
 
         self.read_requests = []
-        self.vel_sp = 0
+        self._vel_sp = 0
 
-        self.cur = 0
-        self.vel = 0
-        self.pos = 0
+        self._cur = 0
+        self._vel = 0
+        self._pos = 0
 
     def stop(self):
         self.stopflag = True
@@ -127,8 +127,12 @@ class Motor(object):
     def enable(self):
         self._enable()
 
+    @property
+    def pos(self):
+        return self._pos
+
     def set_vel_sp(self, vel):
-        self.vel_sp = vel
+        self._vel_sp = vel
 
     async def read(self):
         self._mser.ser.flush()
@@ -139,7 +143,7 @@ class Motor(object):
             now = time.time()
             update_count += 1
             if now - last_update > 1:
-                print("[{:.3f}] Cur: {:.3f} Vel: {:.3f} Pos: {:.3f}   (Refresh: {} Hz)".format(now, self.cur, self.vel, self.pos, update_count))
+                print("[{:.3f}] Cur: {:.3f} Vel: {:.3f} Pos: {:.3f}   (Refresh: {} Hz)".format(now, self._cur, self._vel, self._pos, update_count))
                 last_update = now
                 update_count = 0
 
@@ -148,18 +152,18 @@ class Motor(object):
                 await self.loop.run_in_executor(None, req)
 
             # Always poll these
-            self.cur = await self.loop.run_in_executor(None, self._get_cur)
-            self.vel = await self.loop.run_in_executor(None, self._get_vel)
-            self.pos = await self.loop.run_in_executor(None, self._get_pos)
+            self._cur = await self.loop.run_in_executor(None, self._get_cur)
+            self._vel = await self.loop.run_in_executor(None, self._get_vel)
+            self._pos = await self.loop.run_in_executor(None, self._get_pos)
 
             # Always command velocity
-            r = await self.loop.run_in_executor(None, self._set_vel, self.vel_sp)
+            r = await self.loop.run_in_executor(None, self._set_vel, self._vel_sp)
             if r[0] == '\xe0':
                 print("error: {}".format(r))
 
     def _disable(self):
         self._mser.write_u32(SYSTEM_STATE_BASE, SYS_OUTPUT_ENABLE, 0)
-        self.vel_sp = 0
+        self._vel_sp = 0
 
     def _enable(self):
         self._mser.write_u32(SYSTEM_STATE_BASE, SYS_OUTPUT_ENABLE, 1)

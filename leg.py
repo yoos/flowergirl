@@ -50,7 +50,7 @@ class Leg(object):
     @asyncio.coroutine
     def estop(self):
         """E-stop. This does not clear the leg's zero angle"""
-        self._motor.estop()
+        self._motor.disable()
 
     @asyncio.coroutine
     def get_pos(self):

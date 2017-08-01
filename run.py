@@ -328,12 +328,12 @@ if __name__ == "__main__":
     #mc3 = MotorSerial("/dev/m3", 230400, 1)
     mct = MotorSerial("/dev/ttyACM0", 921600, 1)   # DEBUG(syoo)
 
-    l1 = Leg("L1", Motor(mct, 0))
-    l2 = Leg("L2", Motor(mct, 0))
-    l3 = Leg("L3", Motor(mct, 0))
-    r1 = Leg("R1", Motor(mct, 1), True)
-    r2 = Leg("R2", Motor(mct, 1), True)
-    r3 = Leg("R3", Motor(mct, 1), True)
+    l1 = Leg("L1", Motor(loop, mct, 0))
+    l2 = Leg("L2", Motor(loop, mct, 0))
+    l3 = Leg("L3", Motor(loop, mct, 0))
+    r1 = Leg("R1", Motor(loop, mct, 1), True)
+    r2 = Leg("R2", Motor(loop, mct, 1), True)
+    r3 = Leg("R3", Motor(loop, mct, 1), True)
 
     f = Flowergirl(loop, l1, l2, l3, r1, r2, r3)
 
