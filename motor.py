@@ -119,6 +119,10 @@ class Motor(object):
         self._vel = 0
         self._pos = 0
 
+    @property
+    def pos(self):
+        return self._pos
+
     def stop(self):
         self.stopflag = True
 
@@ -127,10 +131,6 @@ class Motor(object):
 
     def enable(self):
         self._enable()
-
-    @property
-    def pos(self):
-        return self._pos
 
     def set_vel_sp(self, vel):
         self._vel_sp = vel
