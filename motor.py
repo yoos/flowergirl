@@ -127,8 +127,9 @@ class Motor(object):
         self._pos = 0
 
         self._log = logging.getLogger("Motor[{}].{}".format(self.name, self._index))
-        self._log.setLevel(logging.INFO)
-        self._log.addHandler(flower_log.handler)
+        self._log.setLevel(logging.DEBUG)
+        self._log.addHandler(flower_log.ch)
+        self._log.addHandler(flower_log.fh)
 
         self._task = self._loop.create_task(self.run())
 

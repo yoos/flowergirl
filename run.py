@@ -73,8 +73,9 @@ class Flowergirl(object):
 
         # Logging
         self._log = logging.getLogger("Flowergirl")
-        self._log.setLevel(logging.INFO)
-        self._log.addHandler(flower_log.handler)
+        self._log.setLevel(logging.DEBUG)
+        self._log.addHandler(flower_log.ch)
+        self._log.addHandler(flower_log.fh)
 
         self._control_task = self._loop.create_task(self.run_control())
         self._comm_task = self._loop.run_until_complete(asyncio.start_server(self.handle_recv, "", 55000, loop=self._loop))

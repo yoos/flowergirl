@@ -12,17 +12,22 @@ try:
     os.mkdir('log')
 except FileExistsError:
     pass
-logging.basicConfig(filename="log/flowergirl_{}.log".format(time.strftime("%Y-%m-%d_%H-%M-%S")))
 
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(name)s - %(message)s')
 
-handler = logging.StreamHandler()
-handler.setLevel(logging.DEBUG)
-handler.setFormatter(formatter)
+ch = logging.StreamHandler()
+ch.setLevel(logging.INFO)
+ch.setFormatter(formatter)
+
+fh = logging.FileHandler(filename="log/flowergirl_{}.log".format(time.strftime("%Y-%m-%d_%H-%M-%S")))
+fh.setLevel(logging.DEBUG)
+fh.setFormatter(formatter)
 
 if __name__ == "__main__":
     log = logging.getLogger("test")
-    log.addHandler(handler)
+    log.setLevel(logging.DEBUG)
+    log.addHandler(ch)
+    log.addHandler(fh)
 
     log.info("Info message")
     log.debug("Debug message")
