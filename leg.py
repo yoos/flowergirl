@@ -6,16 +6,19 @@ Flowergirl leg control
 import asyncio
 import argparse
 import asyncio
+import logging
 import serial
 import signal
 import threading
 import time
 
+import flower_log
 from math import pi
 from motor import Motor, MotorSerial
 
 class Leg(object):
-    def __init__(self, name, motor, reverse=False):
+    def __init__(self, loop, name, motor, reverse=False):
+        self._loop = loop
         self._name = name
         self._motor = motor
         self._reverse = reverse   # Reverse rotation axis
@@ -30,6 +33,17 @@ class Leg(object):
         self._hys_lo = None   # Hysteresis low threshold
         self._hys_hi = None   # Hysteresis high threshold
         self._on_sp = False   # On-setpoint flag
+
+        # Logging
+        self._log = logging.getLogger("Leg {}".format(self._name))
+        self._log.setLevel(logging.INFO)
+        self._log.addHandler(flower_log.handler)
+
+        self._task = self._loop.create_task(self.run())
+
+    @property
+    def task(self):
+        return self._task
 
     @property
     def calibrated(self):
@@ -48,7 +62,7 @@ class Leg(object):
 
     def stop(self):
         """Stop control thread"""
-        print("[{:.3f}] Leg {} control loop stopping".format(time.time(), self._name))
+        self._log.info("Stopping")
         self._motor.stop()
         self._stopflag = True
 
@@ -58,13 +72,13 @@ class Leg(object):
         self._vel_sp = None
         self._pos_sp = None
         self._enabled = False
-        print("[{:.3f}] Leg {} disabled".format(time.time(), self._name))
+        self._log.info("Disabled")
 
     def enable(self):
         """Enable leg"""
         self._motor.enable()
         self._enabled = True
-        print("[{:.3f}] Leg {} enabled".format(time.time(), self._name))
+        self._log.info("Enabled")
 
     def set_vel_sp(self, vel):
         """Set velocity in radians/second"""
@@ -75,7 +89,7 @@ class Leg(object):
     def set_zero(self):
         """Set leg zero angle"""
         self._zero = self._motor.pos
-        print("[{:.3f}] Leg {} zero angle: {}".format(time.time(), self._name, self._zero))
+        self._log.info("Zero angle: {}".format(self._zero))
 
     def sp_err_pos(self, cur, sp):
         """Return error as [0, 2pi) from current leg angle to setpoint"""
@@ -108,7 +122,7 @@ class Leg(object):
             now = time.time()
             update_count += 1
             if now - last_update > 1:
-                print("[{:.3f}] Leg {} control freq: {} Hz".format(now, self._name, update_count))
+                self._log.debug("Control freq: {} Hz".format(update_count))
                 last_update = now
                 update_count = 0
 
@@ -148,11 +162,10 @@ if __name__ == "__main__":
     m = Motor(loop, mser, args.index)
 
     # Leg control
-    l = Leg("Test", m)
+    l = Leg(loop, "Test", m)
     l.enable()
     l.set_zero()
     l.move_to(0, 1)
-    leg_task = loop.create_task(l.run())
 
     # Process inputs
     async def proc_inputs():
@@ -178,5 +191,5 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, lambda s,f: l.stop())
 
     # Loop!
-    loop.run_until_complete(leg_task)
+    loop.run_until_complete(l.task)
     loop.close()

@@ -8,6 +8,7 @@ import enum
 import errno
 import functools
 import json
+import logging
 import signal
 import socket
 import sys
@@ -15,6 +16,7 @@ import threading
 import time
 from math import pi
 
+import flower_log
 from motor import MotorSerial, Motor
 from leg import Leg
 
@@ -57,6 +59,8 @@ class Flowergirl(object):
         self.watchdog_time = 0
         self.debug = debug
 
+        self._state_change = True   # State change flag
+
         # Comm socket
         self.sock = None
 
@@ -67,24 +71,41 @@ class Flowergirl(object):
                      LegIndex.R2: leg_right_center,
                      LegIndex.R3: leg_right_rear}
 
+        # Logging
+        self._log = logging.getLogger("Flowergirl")
+        self._log.setLevel(logging.INFO)
+        self._log.addHandler(flower_log.handler)
+
+        self._control_task = self._loop.create_task(self.run_control())
+        self._comm_task = self._loop.run_until_complete(asyncio.start_server(self.handle_recv, "", 55000, loop=self._loop))
+        self._log.info("Waiting for command connection on {}".format(self._comm_task.sockets[0].getsockname()))
+
+    @property
+    def control_task(self):
+        return self._control_task
+
+    @property
+    def comm_task(self):
+        return self._comm_task
+
     def stop(self):
         for leg in self.legs.values():
             leg.stop()
 
-        print("no more flowers :(")
+        self._log.info("Stopping")
         self.stopflag = True
 
     def print_cmds(self):
-        print("Forward: {:+1.2f}   Yaw: {:+1.2f}   Cannon: {}   Estop: {}".format(self.cmd_fwd, self.cmd_yaw, "On" if self.cmd_cannon else "Off", self.cmd_estop))
+        self._log.debug("Forward: {:+1.2f}   Yaw: {:+1.2f}   Cannon: {}   Estop: {}".format(self.cmd_fwd, self.cmd_yaw, "On" if self.cmd_cannon else "Off", self.cmd_estop))
 
     # All desired motor values should be set together by the controller
     def set_leg_velocities(self, l1, l2, l3, r1, r2, r3):
-        self.legs[LegIndex.L1].set_vel(l1)
-        self.legs[LegIndex.L2].set_vel(l2)
-        self.legs[LegIndex.L3].set_vel(l3)
-        self.legs[LegIndex.R1].set_vel(r1)
-        self.legs[LegIndex.R2].set_vel(r2)
-        self.legs[LegIndex.R3].set_vel(r3)
+        self.legs[LegIndex.L1].set_vel_sp(l1)
+        self.legs[LegIndex.L2].set_vel_sp(l2)
+        self.legs[LegIndex.L3].set_vel_sp(l3)
+        self.legs[LegIndex.R1].set_vel_sp(r1)
+        self.legs[LegIndex.R2].set_vel_sp(r2)
+        self.legs[LegIndex.R3].set_vel_sp(r3)
 
     def set_leg_positions(self, l1, l2, l3, r1, r2, r3):
         self.legs[LegIndex.L1].set_pos(l1)
@@ -97,16 +118,19 @@ class Flowergirl(object):
     def set_state(self, state):
         if self.state == state:
             return
-        print("[{:.3f}] State: {} -> {}".format(time.time(), self.state, state))
+        self._log.info("State: {} -> {}".format(self.state, state))
         self.state = state
+        self._state_change = True
 
     async def state_estop(self):
-        self.legs[LegIndex.L1].disable()
-        self.legs[LegIndex.L2].disable()
-        self.legs[LegIndex.L3].disable()
-        self.legs[LegIndex.R1].disable()
-        self.legs[LegIndex.R2].disable()
-        self.legs[LegIndex.R3].disable()
+        if self._state_change:
+            self.legs[LegIndex.L1].disable()
+            self.legs[LegIndex.L2].disable()
+            self.legs[LegIndex.L3].disable()
+            self.legs[LegIndex.R1].disable()
+            self.legs[LegIndex.R2].disable()
+            self.legs[LegIndex.R3].disable()
+            self._state_change = False
 
         self.cmd_fwd = 0.0
         self.cmd_yaw = 0.0
@@ -116,6 +140,14 @@ class Flowergirl(object):
             self.set_state(ControlState.STANDBY)
 
     async def state_standby(self):
+        if self._state_change:
+            self.legs[LegIndex.L1].enable()
+            self.legs[LegIndex.L2].enable()
+            self.legs[LegIndex.L3].enable()
+            self.legs[LegIndex.R1].enable()
+            self.legs[LegIndex.R2].enable()
+            self.legs[LegIndex.R3].enable()
+            self._state_change = False
         if self.cmd_cannon:
             self.set_state(ControlState.INIT)
 
@@ -123,13 +155,13 @@ class Flowergirl(object):
         """Zero the legs by turning them backwards until the toes hit the ground. Open-loop."""
         # Watchdog and E-stop don't work in this state due to the simplistic sleeps.
         self.set_leg_velocities(0, 0, -1, 0, 0, -1)
-        print("[{:.3f}] Zeroing rear legs".format(time.time()))
+        self._log.info("Zeroing rear legs")
         await asyncio.sleep(1)
         self.set_leg_velocities(0, -1, -1, 0, -1, -1)
-        print("[{:.3f}] Zeroing center legs".format(time.time()))
+        self._log.info("Zeroing center legs")
         await asyncio.sleep(1)
         self.set_leg_velocities(-1, -1, -1, -1, -1, -1)
-        print("[{:.3f}] Zeroing front legs".format(time.time()))
+        self._log.info("Zeroing front legs")
         await asyncio.sleep(1)
         self.set_leg_velocities(-1, -1, 0, -1, -1, 0)
         await asyncio.sleep(1)
@@ -144,7 +176,7 @@ class Flowergirl(object):
 
     async def state_sit(self):
         for leg in self.legs.values():
-            await leg.move_to(pi/2, 1)
+            leg.move_to(pi/2, 1)
 
         if self.cmd_trigger and all([leg.on_setpoint for leg in self.legs.values()]):
             self.set_state(ControlState.STAND)
@@ -242,15 +274,15 @@ class Flowergirl(object):
                        ControlState.WALK:    self.state_walk,
                        ControlState.YAW:     self.state_yaw}
 
-        last_est_time = time.time()
-        loop_count = 0
+        last_update = time.time()
+        update_count = 0
         while not self.stopflag:
             now = time.time()
-            loop_count += 1
-            if now - last_est_time > 1:
-                print("[{:.3f}] Command freq: {} Hz".format(now, loop_count))
-                last_est_time = now
-                loop_count = 0
+            update_count += 1
+            if now - last_update > 1:
+                self._log.debug("Command freq: {} Hz".format(update_count))
+                last_update = now
+                update_count = 0
 
             # Unconditionally set Estop if commanded
             if not self.watchdog_alive:
@@ -264,7 +296,7 @@ class Flowergirl(object):
     async def handle_recv(self, reader, writer):
         """Command connection callback"""
         peername = writer.get_extra_info('peername')
-        print("Received connection from {}".format(peername))
+        self._log.info("Received connection from {}".format(peername))
         # TODO(syoo): Limit to one connection
 
         self.cmd_estop = True
@@ -272,24 +304,21 @@ class Flowergirl(object):
             r = await reader.read(1024)
 
             if len(r) == 0:
-                print("Client {} closed connection".format(peername))
+                self._log.info("Client {} closed connection".format(peername))
                 break
-
-            if self.debug:
-                print("Received: {}".format(r))
 
             try:
                 cmd = json.loads(r)
 
                 # Sanity check
                 if abs(cmd["fwd"]) > 1.0:
-                    print("ERROR: Forward velocity must be within [-1, 1]")
+                    self._log.error("Forward velocity must be within [-1, 1]")
                 elif abs(cmd["yaw"]) > 1.0:
-                    print("ERROR: Yaw velocity must be within [-1, 1]")
+                    self._log.error("Yaw velocity must be within [-1, 1]")
                 elif type(cmd["cannon"]) is not int:
-                    print("ERROR: Cannon command must be a boolean")
+                    self._log.error("Cannon command must be a boolean")
                 elif type(cmd["estop"]) is not bool:
-                    print("ERROR: Estop command must be a boolean")
+                    self._log.error("Estop command must be a boolean")
                     self.cmd_estop = True   # Assume Estop if input is bad
                 else:
                     self.cmd_fwd = cmd["fwd"]
@@ -302,7 +331,7 @@ class Flowergirl(object):
 
                 #self.print_cmds()
             except json.JSONDecodeError as e:
-                print("JSON decode error: {}".format(e))
+                self._log.error("JSON decode error: {}".format(e))
 
         self.cmd_estop = True
         writer.close()
@@ -322,30 +351,25 @@ if __name__ == "__main__":
     #mc3 = MotorSerial("/dev/m3", 230400, 1)
     mct = MotorSerial("/dev/ttyACM0", 921600, 1)   # DEBUG(syoo)
 
-    l1 = Leg("L1", Motor(loop, mct, 0))
-    l2 = Leg("L2", Motor(loop, mct, 0))
-    l3 = Leg("L3", Motor(loop, mct, 0))
-    r1 = Leg("R1", Motor(loop, mct, 1), True)
-    r2 = Leg("R2", Motor(loop, mct, 1), True)
-    r3 = Leg("R3", Motor(loop, mct, 1), True)
+    l1 = Leg(loop, "L1", Motor(loop, mct, 0))
+    l2 = Leg(loop, "L2", Motor(loop, mct, 0))
+    l3 = Leg(loop, "L3", Motor(loop, mct, 0))
+    r1 = Leg(loop, "R1", Motor(loop, mct, 1), True)
+    r2 = Leg(loop, "R2", Motor(loop, mct, 1), True)
+    r3 = Leg(loop, "R3", Motor(loop, mct, 1), True)
 
     f = Flowergirl(loop, l1, l2, l3, r1, r2, r3)
 
-    control_task = asyncio.Task(f.run_control())
-    comm_srv = loop.run_until_complete(asyncio.start_server(f.handle_recv, "", 55000, loop=loop))
-    print("Waiting for command connection on {}".format(comm_srv.sockets[0].getsockname()))
-
     def sig_handler(signal, frame):
-        control_task.cancel()
-        comm_srv.close()
-        loop.stop()
+        f.stop()
     signal.signal(signal.SIGINT, sig_handler)
 
     try:
         print("Entering event loop")
         print("Ctrl+C to stop")
-        loop.run_until_complete(control_task)
+        loop.run_until_complete(f.control_task)
     finally:
         print("Closing event loop")
         loop.close()
 
+    print("no more flowers :(")

@@ -7,6 +7,7 @@ import argparse
 import asyncio
 import binascii
 import csv
+import logging
 import serial
 import signal
 import struct
@@ -14,6 +15,7 @@ import sys
 import time
 from datetime import datetime
 
+import flower_log
 from serial_defines import *
 
 def fletcher16(dat):
@@ -32,7 +34,12 @@ def append_checksum(dat):
 
 class MotorSerial(object):
     def __init__(self, port, baud, tout=1):
+        self._port = port
         self.ser = serial.Serial(port, baud, timeout=tout)
+
+    @property
+    def name(self):
+        return self._port
 
     def read_bytes(self, data_class, data_inst, payload_len):
         dat = bytearray([0x00, data_class, data_inst])
@@ -109,7 +116,7 @@ class Motor(object):
     def __init__(self, loop, mser, index):
         self._loop = loop
         self._mser = mser   # MotorSerial instance
-        self._index = index   # Each controller controls two motors,
+        self._index = 0   # Each controller controls two motors,   TODO(syoo): set back to `index` once protocol allows
         self._stopflag = False
 
         self._read_requests = []
@@ -119,24 +126,41 @@ class Motor(object):
         self._vel = 0
         self._pos = 0
 
+        self._log = logging.getLogger("Motor[{}].{}".format(self.name, self._index))
+        self._log.setLevel(logging.INFO)
+        self._log.addHandler(flower_log.handler)
+
+        self._task = self._loop.create_task(self.run())
+
+    @property
+    def name(self):
+        return self._mser.name
+
+    @property
+    def task(self):
+        return self._task
+
     @property
     def pos(self):
         return self._pos
 
     def stop(self):
+        self._log.info("Stopping")
         self._disable()
         self._stopflag = True
 
     def disable(self):
         self._disable()
+        self._log.info("Disabled")
 
     def enable(self):
         self._enable()
+        self._log.info("Enabled")
 
     def set_vel_sp(self, vel):
         self._vel_sp = vel
 
-    async def read(self):
+    async def run(self):
         self._mser.ser.flush()
 
         last_update = time.time()
@@ -145,7 +169,7 @@ class Motor(object):
             now = time.time()
             update_count += 1
             if now - last_update > 1:
-                print("[{:.3f}] Cur: {:.3f} Vel: {:.3f} Pos: {:.3f}   (Refresh: {} Hz)".format(now, self._cur, self._vel, self._pos, update_count))
+                self._log.debug("Cur: {:.3f} Vel: {:.3f} Pos: {:.3f}   (Refresh: {} Hz)".format(self._cur, self._vel, self._pos, update_count))
                 last_update = now
                 update_count = 0
 
@@ -162,7 +186,7 @@ class Motor(object):
             # Always command velocity
             r = await self._loop.run_in_executor(None, self._set_vel, self._vel_sp)
             if r[0] == '\xe0':
-                print("error: {}".format(r))
+                self._log.error("Received error: {}".format(r))
 
     def _disable(self):
         self._mser.write_u32((self._index<<7) + SYSTEM_STATE_BASE, SYS_OUTPUT_ENABLE, 0)
@@ -228,7 +252,7 @@ if __name__ == "__main__":
         r = mfunc(args.cmdarg) if args.cmdarg else mfunc()
         print("Read: {}".format(r))
     else:
-        loop.run_until_complete(m.read())
+        loop.run_until_complete(m.task)
         loop.close()
 
     print("Disabling motor")
