@@ -8,6 +8,7 @@ import asyncio
 import binascii
 import csv
 import serial
+import signal
 import struct
 import sys
 import time
@@ -207,6 +208,9 @@ if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     m = Motor(loop, mser, args.index)
 
+    signal.signal(signal.SIGINT, lambda s,f: m.stop())
+
+    # Check the motor command exists
     mfunc = None
     try:
         mfunc = getattr(m, args.cmd)
@@ -214,9 +218,16 @@ if __name__ == "__main__":
         print("{} does not implement {}".format(type(m).__name__, args.cmd))
         exit(1)
 
+    # Run
+    print("Enabling motor")
+    m.enable()
+
     if not args.continuous:
         r = mfunc(args.cmdarg) if args.cmdarg else mfunc()
         print("Read: {}".format(r))
     else:
         loop.run_until_complete(m.read())
         loop.close()
+
+    print("Disabling motor")
+    m.disable()
