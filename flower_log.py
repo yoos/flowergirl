@@ -12,7 +12,7 @@ try:
     os.mkdir('log')
 except FileExistsError:
     pass
-logging.basicConfig(filename="log/flowergirl_{}.log".format(time.strftime("%Y-%m-%d_%H_%M_%S")))
+logging.basicConfig(filename="log/flowergirl_{}.log".format(time.strftime("%Y-%m-%d_%H-%M-%S")))
 
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(name)s - %(message)s')
 
