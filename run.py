@@ -101,12 +101,12 @@ class Flowergirl(object):
         self.state = state
 
     async def state_estop(self):
-        await self.legs[LegIndex.L1].estop()
-        await self.legs[LegIndex.L2].estop()
-        await self.legs[LegIndex.L3].estop()
-        await self.legs[LegIndex.R1].estop()
-        await self.legs[LegIndex.R2].estop()
-        await self.legs[LegIndex.R3].estop()
+        self.legs[LegIndex.L1].disable()
+        self.legs[LegIndex.L2].disable()
+        self.legs[LegIndex.L3].disable()
+        self.legs[LegIndex.R1].disable()
+        self.legs[LegIndex.R2].disable()
+        self.legs[LegIndex.R3].disable()
 
         self.cmd_fwd = 0.0
         self.cmd_yaw = 0.0
