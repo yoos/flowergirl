@@ -110,7 +110,7 @@ class Motor(object):
         self._loop = loop
         self._mser = mser   # MotorSerial instance
         self._index = index   # Each controller controls two motors,
-        self.stopflag = False
+        self._stopflag = False
 
         self._read_requests = []
         self._vel_sp = 0
@@ -124,7 +124,8 @@ class Motor(object):
         return self._pos
 
     def stop(self):
-        self.stopflag = True
+        self._disable()
+        self._stopflag = True
 
     def disable(self):
         self._disable()
@@ -140,7 +141,7 @@ class Motor(object):
 
         last_update = time.time()
         update_count = 0
-        while not self.stopflag:
+        while not self._stopflag:
             now = time.time()
             update_count += 1
             if now - last_update > 1:
