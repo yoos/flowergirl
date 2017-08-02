@@ -165,35 +165,35 @@ class Motor(object):
                 print("error: {}".format(r))
 
     def _disable(self):
-        self._mser.write_u32(self._index<<7 + SYSTEM_STATE_BASE, SYS_OUTPUT_ENABLE, 0)
+        self._mser.write_u32((self._index<<7) + SYSTEM_STATE_BASE, SYS_OUTPUT_ENABLE, 0)
         self._vel_sp = 0
 
     def _enable(self):
-        self._mser.write_u32(self._index<<7 + SYSTEM_STATE_BASE, SYS_OUTPUT_ENABLE, 1)
+        self._mser.write_u32((self._index<<7) + SYSTEM_STATE_BASE, SYS_OUTPUT_ENABLE, 1)
 
     def _get_cur(self):
         """Get current in amps"""
-        return self._mser.read_f32(self._index<<7 + CURRENT_BASE, I_MEASURED)
+        return self._mser.read_f32((self._index<<7) + CURRENT_BASE, I_MEASURED)
 
     def _get_vel(self):
         """Get velocity in radians/second"""
-        return self._mser.read_f32(self._index<<7 + V_BASE, V_MEASURED)
+        return self._mser.read_f32((self._index<<7) + V_BASE, V_MEASURED)
 
     def _get_pos(self):
         """Get position in radians"""
-        return self._mser.read_f32(self._index<<7 + P_BASE, P_MEASURED)
+        return self._mser.read_f32((self._index<<7) + P_BASE, P_MEASURED)
 
     def _set_cur(self, cur):
         """Set current in amps"""
-        return self._mser.write_f32(self._index<<7 + CURRENT_BASE, I_REF, cur)
+        return self._mser.write_f32((self._index<<7) + CURRENT_BASE, I_REF, cur)
 
     def _set_vel(self, vel):
         """Set velocity in radians/second"""
-        return self._mser.write_f32(self._index<<7 + V_BASE, V_REF, vel)
+        return self._mser.write_f32((self._index<<7) + V_BASE, V_REF, vel)
 
     def _set_pos(self, pos):
         """Set position in radians"""
-        return self._mser.write_f32(self._index<<7 + P_BASE, P_REF, pos)
+        return self._mser.write_f32((self._index<<7) + P_BASE, P_REF, pos)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Flowergirl motor tester')
