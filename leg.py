@@ -3,18 +3,24 @@
 Flowergirl leg control
 """
 
-from math import pi
-from motor import Motor
+import asyncio
+import argparse
 import asyncio
 import serial
+import signal
 import threading
 import time
+
+from math import pi
+from motor import Motor, MotorSerial
 
 class Leg(object):
     def __init__(self, name, motor, reverse=False):
         self._name = name
         self._motor = motor
         self._reverse = reverse   # Reverse rotation axis
+        self._stopflag = False   # Control loop stop flag. Once set, loop will terminate.
+        self._enabled = False   # Leg control enabled. When disabled, leg is limp.
 
         self._zero = None   # Leg zero position in radians
 
@@ -25,20 +31,6 @@ class Leg(object):
         self._hys_hi = None   # Hysteresis high threshold
         self._on_sp = False   # On-setpoint flag
 
-        # Control thread
-        return
-        self._stopflag = False
-        self._thread = threading.Thread(target=self.run_control)
-        print("Leg {} control thread starting".format(self._name))
-        self._thread.start()
-        self._thread.join()
-        print("Leg {} control thread stopped".format(self._name))
-
-    def stop(self):
-        """Stop control thread"""
-        print("Leg {} control thread stopping".format(self._name))
-        self._stopflag = True
-
     @property
     def calibrated(self):
         return not (self._zero == None)
@@ -47,27 +39,43 @@ class Leg(object):
     def on_setpoint(self):
         return self._on_sp
 
-    @asyncio.coroutine
-    def estop(self):
-        """E-stop. This does not clear the leg's zero angle"""
-        self._motor.disable()
-
-    @asyncio.coroutine
-    def get_pos(self):
+    @property
+    def pos(self):
         """Get position in radians"""
-        raw_pos = self._motor.get_pos()   # TODO(syoo)
+        raw_pos = self._motor.pos
+        p = raw_pos   # TODO(syoo)
+        return p
 
-    @asyncio.coroutine
-    def set_vel(self, vel):
+    def stop(self):
+        """Stop control thread"""
+        print("[{:.3f}] Leg {} control loop stopping".format(time.time(), self._name))
+        self._motor.stop()
+        self._stopflag = True
+
+    def disable(self):
+        """Disable leg. This does not clear the leg's zero angle, but the leg should go limp."""
+        self._motor.disable()
+        self._vel_sp = None
+        self._pos_sp = None
+        self._enabled = False
+        print("[{:.3f}] Leg {} disabled".format(time.time(), self._name))
+
+    def enable(self):
+        """Enable leg"""
+        self._motor.enable()
+        self._enabled = True
+        print("[{:.3f}] Leg {} enabled".format(time.time(), self._name))
+
+    def set_vel_sp(self, vel):
         """Set velocity in radians/second"""
         if self._reverse:
             vel = -vel
-        self._motor.set_vel(vel)
+        self._motor.set_vel_sp(vel)
 
-    @asyncio.coroutine
     def set_zero(self):
         """Set leg zero angle"""
-        self._zero = self._motor.get_pos()
+        self._zero = self._motor.pos
+        print("[{:.3f}] Leg {} zero angle: {}".format(time.time(), self._name, self._zero))
 
     def sp_err_pos(self, cur, sp):
         """Return error as [0, 2pi) from current leg angle to setpoint"""
@@ -85,50 +93,90 @@ class Leg(object):
             err -= 2*pi
         return err
 
-    @asyncio.coroutine
     def move_to(self, pos, vel, hys_lo=pi/72, hys_hi=pi/36):
         """Move leg at `vel` rad/s to `pos` radians, with some hysteresis."""
         self._vel_sp = vel
         self._pos_sp = pos
-        self._hyst_lo = hys_lo
-        self._hyst_hi = hys_hi
+        self._hys_lo = hys_lo
+        self._hys_hi = hys_hi
 
-    @asyncio.coroutine
-    def run_control(self):
+    async def run(self):
         """Run leg position controller"""
-        last_est_time = time.time()
-        loop_count = 0
+        last_update = time.time()
+        update_count = 0
         while not self._stopflag:
             now = time.time()
-            loop_count += 1
+            update_count += 1
+            if now - last_update > 1:
+                print("[{:.3f}] Leg {} control freq: {} Hz".format(now, self._name, update_count))
+                last_update = now
+                update_count = 0
 
-            if not self._pos_sp:
+            if not self._enabled or self._pos_sp is None:
+                await asyncio.sleep(0.05)
                 continue
-            if not self._zeroed:
+            if not self.calibrated:
                 raise RuntimeError("Motor uncalibrated")
 
-            err = sp_err(self.get_pos(), self._pos_sp)
+            err = self.sp_err(self.pos, self._pos_sp)
             if self._on_sp and abs(err) > self._hys_hi:
                 self._on_sp = False
-                self.set_vel(self._vel_sp)
+                self._motor.set_vel_sp(self._vel_sp)
             elif not self._on_sp and abs(err) > self._hys_lo:
                 direction = err/abs(err)
-                self.set_vel(direction * abs(self._vel_sp))
+                self._motor.set_vel_sp(direction * abs(self._vel_sp))
             elif not self._on_sp and abs(err) <= self._hys_lo:
                 self._on_sp = True
-                self.set_vel(0)
+                self._motor.set_vel_sp(0)
 
-            yield from asyncio.sleep(0.001)   # TODO(syoo): properly implement control freq
+            await asyncio.sleep(0.002)   # TODO(syoo): properly implement control freq
 
-            if now - last_est_time > 1:
-                print("[{:.3f}] Leg {} control freq: {} Hz".format(now, self._name, loop_count))
-                last_est_time = now
-                loop_count = 0
-
-        self.estop()
+        # Disable once done running
+        self.disable()
 
 if __name__ == "__main__":
-    m = Motor("/dev/m1", 230400, 1)
-    l = Leg(m)
-    l.init()
-    l.set_vel(1)
+    parser = argparse.ArgumentParser(description='Flowergirl leg tester')
+    parser.add_argument('--dev', type=str, help='Serial device', required=True)
+    parser.add_argument('--baud', type=int, help='Baudrate', default=921600)
+    parser.add_argument('--index', type=int, help='Motor index', default=0)
+
+    args = parser.parse_args()
+
+    # Motor control
+    mser = MotorSerial(args.dev, args.baud, 5)
+    loop = asyncio.get_event_loop()
+    m = Motor(loop, mser, args.index)
+
+    # Leg control
+    l = Leg("Test", m)
+    l.enable()
+    l.set_zero()
+    l.move_to(0, 1)
+    leg_task = loop.create_task(l.run())
+
+    # Process inputs
+    async def proc_inputs():
+        while not leg_task.done():
+            pos,vel = 0,0
+            try:
+                i = await loop.run_in_executor(None, input, "\nInput desired leg position and velocity (comma-separated):\n\n")
+                tokens = i.split(',')
+                pos = float(tokens[0])
+                if len(tokens) < 2:
+                    print("Assuming vel = 0.5")
+                    vel = 0.5
+                else:
+                    vel = float(tokens[1])
+                print("Moving leg to pos {} rad at {} rad/s".format(pos, vel))
+                l.move_to(pos, vel)
+            except Exception as e:
+                print("Invalid input")
+
+    loop.create_task(proc_inputs())   # This still crashes and burns when the event loop stops..
+
+    # Stop leg control loop on SIGINT
+    signal.signal(signal.SIGINT, lambda s,f: l.stop())
+
+    # Loop!
+    loop.run_until_complete(leg_task)
+    loop.close()
