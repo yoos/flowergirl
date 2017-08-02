@@ -107,12 +107,12 @@ class MotorSerial(object):
 
 class Motor(object):
     def __init__(self, loop, mser, index):
-        self.loop = loop
+        self._loop = loop
         self._mser = mser   # MotorSerial instance
         self._index = index   # Each controller controls two motors,
         self.stopflag = False
 
-        self.read_requests = []
+        self._read_requests = []
         self._vel_sp = 0
 
         self._cur = 0
@@ -149,16 +149,16 @@ class Motor(object):
                 update_count = 0
 
             # Special requests
-            for req in self.read_requests:
-                await self.loop.run_in_executor(None, req)
+            for req in self._read_requests:
+                await self._loop.run_in_executor(None, req)
 
             # Always poll these
-            self._cur = await self.loop.run_in_executor(None, self._get_cur)
-            self._vel = await self.loop.run_in_executor(None, self._get_vel)
-            self._pos = await self.loop.run_in_executor(None, self._get_pos)
+            self._cur = await self._loop.run_in_executor(None, self._get_cur)
+            self._vel = await self._loop.run_in_executor(None, self._get_vel)
+            self._pos = await self._loop.run_in_executor(None, self._get_pos)
 
             # Always command velocity
-            r = await self.loop.run_in_executor(None, self._set_vel, self._vel_sp)
+            r = await self._loop.run_in_executor(None, self._set_vel, self._vel_sp)
             if r[0] == '\xe0':
                 print("error: {}".format(r))
 
