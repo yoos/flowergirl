@@ -36,8 +36,9 @@ class Leg(object):
 
         # Logging
         self._log = logging.getLogger("Leg {}".format(self._name))
-        self._log.setLevel(logging.INFO)
-        self._log.addHandler(flower_log.handler)
+        self._log.setLevel(logging.DEBUG)
+        self._log.addHandler(flower_log.ch)
+        self._log.addHandler(flower_log.fh)
 
         self._task = self._loop.create_task(self.run())
 

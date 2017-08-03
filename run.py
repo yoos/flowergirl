@@ -73,8 +73,9 @@ class Flowergirl(object):
 
         # Logging
         self._log = logging.getLogger("Flowergirl")
-        self._log.setLevel(logging.INFO)
-        self._log.addHandler(flower_log.handler)
+        self._log.setLevel(logging.DEBUG)
+        self._log.addHandler(flower_log.ch)
+        self._log.addHandler(flower_log.fh)
 
         self._control_task = self._loop.create_task(self.run_control())
         self._comm_task = self._loop.run_until_complete(asyncio.start_server(self.handle_recv, "", 55000, loop=self._loop))
@@ -154,23 +155,26 @@ class Flowergirl(object):
     async def state_init(self):
         """Zero the legs by turning them backwards until the toes hit the ground. Open-loop."""
         # Watchdog and E-stop don't work in this state due to the simplistic sleeps.
-        self.set_leg_velocities(0, 0, -1, 0, 0, -1)
-        self._log.info("Zeroing rear legs")
-        await asyncio.sleep(1)
-        self.set_leg_velocities(0, -1, -1, 0, -1, -1)
-        self._log.info("Zeroing center legs")
-        await asyncio.sleep(1)
-        self.set_leg_velocities(-1, -1, -1, -1, -1, -1)
-        self._log.info("Zeroing front legs")
-        await asyncio.sleep(1)
-        self.set_leg_velocities(-1, -1, 0, -1, -1, 0)
-        await asyncio.sleep(1)
-        self.set_leg_velocities(-1, 0, 0, -1, 0, 0)
-        await asyncio.sleep(1)
-        self.set_leg_velocities(0, 0, 0, 0, 0, 0)
+        if any([not leg.calibrated for leg in self.legs.values()]):
+            self.set_leg_velocities(0, 0, -1, 0, 0, -1)
+            self._log.info("Zeroing rear legs")
+            await asyncio.sleep(1)
+            self.set_leg_velocities(0, -1, -1, 0, -1, -1)
+            self._log.info("Zeroing center legs")
+            await asyncio.sleep(1)
+            self.set_leg_velocities(-1, -1, -1, -1, -1, -1)
+            self._log.info("Zeroing front legs")
+            await asyncio.sleep(1)
+            self.set_leg_velocities(-1, -1, 0, -1, -1, 0)
+            await asyncio.sleep(1)
+            self.set_leg_velocities(-1, 0, 0, -1, 0, 0)
+            await asyncio.sleep(1)
+            self.set_leg_velocities(0, 0, 0, 0, 0, 0)
 
-        for leg in self.legs.values():
-            leg.set_zero()
+            for leg in self.legs.values():
+                leg.set_zero()
+        else:
+            self._log.info("Legs already calibrated")
 
         self.set_state(ControlState.SIT)
 
