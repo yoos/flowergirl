@@ -52,10 +52,12 @@ class Cannon(object):
     def on(self):
         """Turn on cannon"""
         self._motor._set_cur(0.1)   # TODO(syoo)
+        self._log.info("ON <3")
 
     def off(self):
         """Turn off cannon"""
         self._motor._set_cur(0)   # TODO(syoo)
+        self._log.info("OFF :(")
 
     async def run(self):
         """Run cannon controller. This is just a dummy loop because the class was adapted from the Leg controller."""

@@ -52,6 +52,7 @@ class Flowergirl(object):
                        leg_right_forward,
                        leg_right_center,
                        leg_right_rear,
+                       cannon,
                        debug=False):
         self._loop = loop   # Event loop
         self.cmd_fwd = 0.0   # [-1, 1]
@@ -76,6 +77,7 @@ class Flowergirl(object):
                      LegIndex.R1: leg_right_forward,
                      LegIndex.R2: leg_right_center,
                      LegIndex.R3: leg_right_rear}
+        self.cannon = cannon
 
         # Logging
         self._log = logging.getLogger("Flowergirl")
@@ -137,6 +139,7 @@ class Flowergirl(object):
             self.legs[LegIndex.R1].disable()
             self.legs[LegIndex.R2].disable()
             self.legs[LegIndex.R3].disable()
+            self.cannon.disable()
             self._state_change = False
 
         # If cannon button pressed, in E-stop, clear calibration values
@@ -155,6 +158,7 @@ class Flowergirl(object):
             self.legs[LegIndex.R1].enable()
             self.legs[LegIndex.R2].enable()
             self.legs[LegIndex.R3].enable()
+            self.cannon.enable()
             self._state_change = False
         if self.cmd_cannon:
             self.set_state(ControlState.INIT)
@@ -269,6 +273,17 @@ class Flowergirl(object):
     def watchdog_alive(self):
         return not time.time() - self.watchdog_time > 1
 
+    def handle_cannon(self, cmd):
+        """Handle cannon command"""
+        if self.state in [ControlState.ESTOP, ControlState.STANDBY, ControlState.INIT]:
+            pass
+        elif cmd and not self.cmd_cannon:
+            self.cannon.on()
+        elif not cmd and self.cmd_cannon:
+            self.cannon.off()
+
+        self.cmd_cannon = cmd
+
     async def run_control(self):
         """High-level command state machine"""
         self.set_state(ControlState.ESTOP)
@@ -330,7 +345,7 @@ class Flowergirl(object):
                 else:
                     self.cmd_fwd = cmd["fwd"]
                     self.cmd_yaw = cmd["yaw"]
-                    self.cmd_cannon = cmd["cannon"]
+                    self.handle_cannon(cmd["cannon"])
                     self.cmd_trigger = cmd["trigger"]
                     self.cmd_estop = cmd["estop"]
 
