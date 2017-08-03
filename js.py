@@ -104,7 +104,12 @@ class Joystick(object):
     def run_comm(self):
         while not self.stopflag:
             cmd = json.dumps({"fwd": self.y.value, "yaw": -self.x.value, "cannon": self.thumb.value, "trigger": self.trigger.value, "estop": True if self.throttle.value < 0.8 else False}).encode()
-            s = self.sock.sendall(cmd)
+            try:
+                s = self.sock.sendall(cmd)
+            except ConnectionResetError:
+                print("Lost connection. Exiting.")
+                self.stop()
+                break
             time.sleep(0.01)
 
         self.sock.close()
