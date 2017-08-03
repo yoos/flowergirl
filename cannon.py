@@ -53,6 +53,10 @@ class Cannon(object):
         """Turn on cannon"""
         self._motor._set_cur(0.1)   # TODO(syoo)
 
+    def off(self):
+        """Turn off cannon"""
+        self._motor._set_cur(0)   # TODO(syoo)
+
     async def run(self):
         """Run cannon controller. This is just a dummy loop because the class was adapted from the Leg controller."""
         while not self._stopflag:
