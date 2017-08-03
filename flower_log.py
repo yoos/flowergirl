@@ -6,8 +6,6 @@ import logging
 import os
 import time
 
-__all__ = ["handler"]
-
 try:
     os.mkdir('log')
 except FileExistsError:
