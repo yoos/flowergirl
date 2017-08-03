@@ -92,6 +92,11 @@ class Leg(object):
         self._zero = self._motor.pos
         self._log.info("Zero angle: {}".format(self._zero))
 
+    def clear_zero(self):
+        """Clear leg zero angle"""
+        self._zero = None
+        self._log.info("Zero angle cleared")
+
     def sp_err(self, cur, sp):
         """Return error as (-pi, pi) from current leg angle to setpoint, i.e., the closest angle from current position to setpoint"""
         err = sp - cur

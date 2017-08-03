@@ -133,9 +133,10 @@ class Flowergirl(object):
             self.legs[LegIndex.R3].disable()
             self._state_change = False
 
-        self.cmd_fwd = 0.0
-        self.cmd_yaw = 0.0
-        self.cmd_cannon = 0
+        # If cannon button pressed, in E-stop, clear calibration values
+        for leg in self.legs.values():
+            if self.cmd_cannon and leg.calibrated:
+                leg.clear_zero()
 
         if not self.cmd_estop:
             self.set_state(ControlState.STANDBY)
@@ -183,6 +184,9 @@ class Flowergirl(object):
             leg.move_to(pi/2, 1)
 
         if self.cmd_trigger and all([leg.on_setpoint for leg in self.legs.values()]):
+            if abs(self.cmd_fwd) > 0.05 or abs(self.cmd_yaw) > 0.05:
+                self._log.warn("Refusing to stand while joystick command is nonzero")
+                return
             self.set_state(ControlState.STAND)
 
     async def state_stand(self):
