@@ -21,6 +21,9 @@ fh = logging.FileHandler(filename="log/flowergirl_{}.log".format(time.strftime("
 fh.setLevel(logging.DEBUG)
 fh.setFormatter(formatter)
 
+def enable_debug():
+    ch.setLevel(logging.DEBUG)
+
 if __name__ == "__main__":
     log = logging.getLogger("test")
     log.setLevel(logging.DEBUG)

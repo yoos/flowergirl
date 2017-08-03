@@ -165,8 +165,9 @@ if __name__ == "__main__":
     parser.add_argument('--dev', type=str, help='Serial device', required=True)
     parser.add_argument('--baud', type=int, help='Baudrate', default=230400)
     parser.add_argument('--index', type=int, help='Motor index', default=0)
-
     args = parser.parse_args()
+
+    flower_log.enable_debug()
 
     # Motor control
     mser = MotorSerial(args.dev, args.baud, 5)

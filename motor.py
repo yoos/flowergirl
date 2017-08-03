@@ -228,8 +228,9 @@ if __name__ == "__main__":
     parser.add_argument('--cmd', type=str, help='Single motor command test', default='_get_cur')
     parser.add_argument('--cmdarg', type=float, help='Single motor command arg')
     parser.add_argument('--continuous', help='Continuous state update test', action='store_true')
-
     args = parser.parse_args()
+
+    flower_log.enable_debug()
 
     mser = MotorSerial(args.dev, args.baud, 5)
     loop = asyncio.get_event_loop()
