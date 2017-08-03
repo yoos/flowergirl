@@ -40,12 +40,14 @@ class Joystick(object):
         self.throttle = JoyValue('throttle', 0.0, -255, -1./255)
         self.trigger = JoyValue('trigger', 0)
         self.thumb = JoyValue('thumb', 0)
+        self.hat_y = JoyValue('hat_y', 0)
 
         # Event codes
         self.events = {0: self.x,
                        1: self.y,
                        2: self.throttle,
                        5: self.z,
+                       17: self.hat_y,
                        288: self.trigger,
                        289: self.thumb}
 
@@ -54,7 +56,7 @@ class Joystick(object):
         self.stopflag = True
 
     def print_state(self):
-        print("X: {:+1.2f} Y: {:+1.2f} Z: {:+1.2f} Throttle: {:+1.2f} Trig: {} Thumb: {}".format(self.x.value, self.y.value, self.z.value, self.throttle.value, self.trigger.value, self.thumb.value))
+        print("X: {:+1.2f} Y: {:+1.2f} Z: {:+1.2f} Throttle: {:+1.2f} Trig: {} Thumb: {} HatY: {}".format(self.x.value, self.y.value, self.z.value, self.throttle.value, self.trigger.value, self.thumb.value, self.hat_y.value))
 
     def get_device(self):
         devs = [evdev.InputDevice(fn) for fn in evdev.list_devices()]
@@ -103,7 +105,7 @@ class Joystick(object):
     # Spam the flowergirl with command values
     def run_comm(self):
         while not self.stopflag:
-            cmd = json.dumps({"fwd": self.y.value, "yaw": -self.x.value, "cannon": self.thumb.value, "trigger": self.trigger.value, "estop": True if self.throttle.value < 0.8 else False}).encode()
+            cmd = json.dumps({"fwd": self.y.value, "yaw": -self.x.value, "cannon": self.thumb.value, "trigger": self.trigger.value, "hat_y": -self.hat_y.value, "estop": True if self.throttle.value < 0.8 else False}).encode()
             try:
                 s = self.sock.sendall(cmd)
             except ConnectionResetError:
