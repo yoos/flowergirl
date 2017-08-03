@@ -163,7 +163,7 @@ class Leg(object):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Flowergirl leg tester')
     parser.add_argument('--dev', type=str, help='Serial device', required=True)
-    parser.add_argument('--baud', type=int, help='Baudrate', default=921600)
+    parser.add_argument('--baud', type=int, help='Baudrate', default=230400)
     parser.add_argument('--index', type=int, help='Motor index', default=0)
 
     args = parser.parse_args()

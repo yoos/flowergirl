@@ -353,7 +353,7 @@ if __name__ == "__main__":
     #mc1 = MotorSerial("/dev/m1", 230400, 1)
     #mc2 = MotorSerial("/dev/m2", 230400, 1)
     #mc3 = MotorSerial("/dev/m3", 230400, 1)
-    mct = MotorSerial("/dev/ttyACM0", 921600, 1)   # DEBUG(syoo)
+    mct = MotorSerial("/dev/ttyACM0", 230400, 1)   # DEBUG(syoo)
 
     l1 = Leg(loop, "L1", Motor(loop, mct, 0))
     l2 = Leg(loop, "L2", Motor(loop, mct, 0))
