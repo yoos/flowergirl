@@ -19,6 +19,7 @@ from math import pi
 import flower_log
 from motor import MotorSerial, Motor
 from leg import Leg
+from cannon import Cannon
 
 # Left and right legs, #1 through 3 front to rear
 class LegIndex(enum.Enum):
@@ -363,8 +364,9 @@ if __name__ == "__main__":
     r1 = Leg(loop, "R1", Motor(loop, mct, 1), True)
     r2 = Leg(loop, "R2", Motor(loop, mct, 1), True)
     r3 = Leg(loop, "R3", Motor(loop, mct, 1), True)
+    cn = Cannon(loop, "Quiet", Motor(loop, mct, 0))
 
-    f = Flowergirl(loop, l1, l2, l3, r1, r2, r3)
+    f = Flowergirl(loop, l1, l2, l3, r1, r2, r3, cn)
 
     def sig_handler(signal, frame):
         f.stop()

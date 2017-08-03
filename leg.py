@@ -35,7 +35,7 @@ class Leg(object):
         self._on_sp = False   # On-setpoint flag
 
         # Logging
-        self._log = logging.getLogger("Leg {}".format(self._name))
+        self._log = logging.getLogger("{} leg".format(self._name))
         self._log.setLevel(logging.DEBUG)
         self._log.addHandler(flower_log.ch)
         self._log.addHandler(flower_log.fh)
