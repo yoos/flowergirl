@@ -92,15 +92,8 @@ class Leg(object):
         self._zero = self._motor.pos
         self._log.info("Zero angle: {}".format(self._zero))
 
-    def sp_err_pos(self, cur, sp):
-        """Return error as [0, 2pi) from current leg angle to setpoint"""
-        err = sp - cur
-        if err < 0:
-            err += 2*pi
-        return err
-
     def sp_err(self, cur, sp):
-        """Return error as (-pi, pi) from current leg angle to setpoint"""
+        """Return error as (-pi, pi) from current leg angle to setpoint, i.e., the closest angle from current position to setpoint"""
         err = sp - cur
         if err < -pi:
             err += 2*pi
@@ -109,9 +102,9 @@ class Leg(object):
         return err
 
     def move_to(self, pos, vel, hys_lo=pi/72, hys_hi=pi/36):
-        """Move leg at `vel` rad/s to `pos` radians, with some hysteresis."""
+        """Move leg at `vel` rad/s to `pos` radians, with some hysteresis. Position setpoints are wrapped to [0, 2pi)"""
         self._vel_sp = vel
-        self._pos_sp = pos
+        self._pos_sp = pos % (2*pi)
         self._hys_lo = hys_lo
         self._hys_hi = hys_hi
 
@@ -127,22 +120,40 @@ class Leg(object):
                 last_update = now
                 update_count = 0
 
+            # If disabled or we don't have a position setpoint, don't do anything.
             if not self._enabled or self._pos_sp is None:
                 await asyncio.sleep(0.05)
                 continue
+
+            # This should only happen if we mess up the state machine
             if not self.calibrated:
                 raise RuntimeError("Motor uncalibrated")
 
+            # Try to reach the position setpoint with some hysteresis. I.e.,
+            # try to move in the direction and velocity specified by `_vel_sp`
+            # towards the position specified by `_pos_sp` until we are within
+            # +/- `_hys_lo` of the position setpoint. If the measured position
+            # subsequently deviates beyond +/- `hys_lo` but stays within +/-
+            # `_hys_hi`, make corrective movements towards the position
+            # setpoint, ignoring the direction implied by `_vel_sp`. However,
+            # if the position deviates past `_hys_hi`, once again move in the
+            # direction implied by `_vel_sp` until we reach the position
+            # setpoint.
             err = self.sp_err(self.pos, self._pos_sp)
-            if self._on_sp and abs(err) > self._hys_hi:
-                self._on_sp = False
-                self._motor.set_vel_sp(self._vel_sp)
-            elif not self._on_sp and abs(err) > self._hys_lo:
-                direction = err/abs(err)
-                self._motor.set_vel_sp(direction * abs(self._vel_sp))
-            elif not self._on_sp and abs(err) <= self._hys_lo:
-                self._on_sp = True
-                self._motor.set_vel_sp(0)
+            if self._on_sp:
+                if abs(err) > self._hys_hi:
+                    self._on_sp = False   # No longer on target
+                elif abs(err) > self._hys_lo:
+                    s = -1 if err < 0 else 1
+                    self._motor.set_vel_sp(abs(self._vel_sp) * s)
+                else:
+                    self._motor.set_vel_sp(0)
+
+            if not self._on_sp:
+                if abs(err) > self._hys_lo:
+                    self._motor.set_vel_sp(self._vel_sp)   # No matter what, move in specified direction
+                else:
+                    self._motor.set_vel_sp(0)
 
             await asyncio.sleep(0.002)   # TODO(syoo): properly implement control freq
 
@@ -170,7 +181,7 @@ if __name__ == "__main__":
 
     # Process inputs
     async def proc_inputs():
-        while not leg_task.done():
+        while not l.task.done():
             pos,vel = 0,0
             try:
                 i = await loop.run_in_executor(None, input, "\nInput desired leg position and velocity (comma-separated):\n\n")
