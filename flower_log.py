@@ -6,8 +6,6 @@ import logging
 import os
 import time
 
-__all__ = ["handler"]
-
 try:
     os.mkdir('log')
 except FileExistsError:
@@ -22,6 +20,9 @@ ch.setFormatter(formatter)
 fh = logging.FileHandler(filename="log/flowergirl_{}.log".format(time.strftime("%Y-%m-%d_%H-%M-%S")))
 fh.setLevel(logging.DEBUG)
 fh.setFormatter(formatter)
+
+def enable_debug():
+    ch.setLevel(logging.DEBUG)
 
 if __name__ == "__main__":
     log = logging.getLogger("test")

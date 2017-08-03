@@ -19,6 +19,7 @@ from math import pi
 import flower_log
 from motor import MotorSerial, Motor
 from leg import Leg
+from cannon import Cannon
 
 # Left and right legs, #1 through 3 front to rear
 class LegIndex(enum.Enum):
@@ -39,6 +40,11 @@ class ControlState(enum.Enum):
     YAW = 6
 
 class Flowergirl(object):
+    CMD_DEADBAND = 0.05   # Consider command values below this magnitude as zero
+    GND_ARC = pi/3   # Max arc length
+    GND_VEL = 0.5   # Max velocity on ground
+    LIFT_VEL = 2   # Max lift velocity
+
     def __init__(self, loop,
                        leg_left_forward,
                        leg_left_center,
@@ -46,6 +52,7 @@ class Flowergirl(object):
                        leg_right_forward,
                        leg_right_center,
                        leg_right_rear,
+                       cannon,
                        debug=False):
         self._loop = loop   # Event loop
         self.cmd_fwd = 0.0   # [-1, 1]
@@ -70,6 +77,7 @@ class Flowergirl(object):
                      LegIndex.R1: leg_right_forward,
                      LegIndex.R2: leg_right_center,
                      LegIndex.R3: leg_right_rear}
+        self.cannon = cannon
 
         # Logging
         self._log = logging.getLogger("Flowergirl")
@@ -131,11 +139,13 @@ class Flowergirl(object):
             self.legs[LegIndex.R1].disable()
             self.legs[LegIndex.R2].disable()
             self.legs[LegIndex.R3].disable()
+            self.cannon.disable()
             self._state_change = False
 
-        self.cmd_fwd = 0.0
-        self.cmd_yaw = 0.0
-        self.cmd_cannon = 0
+        # If cannon button pressed, in E-stop, clear calibration values
+        for leg in self.legs.values():
+            if self.cmd_cannon and leg.calibrated:
+                leg.clear_zero()
 
         if not self.cmd_estop:
             self.set_state(ControlState.STANDBY)
@@ -148,6 +158,7 @@ class Flowergirl(object):
             self.legs[LegIndex.R1].enable()
             self.legs[LegIndex.R2].enable()
             self.legs[LegIndex.R3].enable()
+            self.cannon.enable()
             self._state_change = False
         if self.cmd_cannon:
             self.set_state(ControlState.INIT)
@@ -180,9 +191,12 @@ class Flowergirl(object):
 
     async def state_sit(self):
         for leg in self.legs.values():
-            leg.move_to(pi/2, 1)
+            leg.move_to(3*pi/4, 0.5)
 
         if self.cmd_trigger and all([leg.on_setpoint for leg in self.legs.values()]):
+            if abs(self.cmd_fwd) > self.CMD_DEADBAND or abs(self.cmd_yaw) > self.CMD_DEADBAND:
+                self._log.warn("Refusing to stand while joystick command is nonzero")
+                return
             self.set_state(ControlState.STAND)
 
     async def state_stand(self):
@@ -191,9 +205,9 @@ class Flowergirl(object):
 
         if self.cmd_trigger and all([leg.on_setpoint for leg in self.legs.values()]):
             self.set_state(ControlState.SIT)
-        elif abs(self.cmd_fwd) > 0.05:
+        elif abs(self.cmd_fwd) > self.CMD_DEADBAND:
             self.set_state(ControlState.WALK)
-        elif abs(self.cmd_yaw) > 0.05:
+        elif abs(self.cmd_yaw) > self.CMD_DEADBAND:
             self.set_state(ControlState.YAW)
 
     async def state_walk(self):
@@ -202,61 +216,54 @@ class Flowergirl(object):
         scale_right = min(max(self.cmd_fwd + self.cmd_yaw, 1), -1)
 
         # If we get too close to negative scaling, we should switch to yaw mode.
-        if scale_left < 0.05 or scale_right < 0.05:
+        if scale_left < self.CMD_DEADBAND or scale_right < self.CMD_DEADBAND:
             self.set_state(ControlState.STAND)
             return
 
-        gnd_arc = pi/3   # Max arc length
-        gnd_vel = 0.5   # Max velocity on ground
-        lift_vel = 2   # Max lift velocity
-
         if self.step is 0:
-            self.legs[LegIndex.L1].move_to(3*pi/2 + gnd_arc/2 * scale_left,  gnd_vel  * scale_left)
-            self.legs[LegIndex.L2].move_to(3*pi/2 - gnd_arc/2 * scale_left,  lift_vel * scale_left)
-            self.legs[LegIndex.L3].move_to(3*pi/2 + gnd_arc/2 * scale_left,  gnd_vel  * scale_left)
-            self.legs[LegIndex.R1].move_to(3*pi/2 - gnd_arc/2 * scale_right, lift_vel * scale_right)
-            self.legs[LegIndex.R2].move_to(3*pi/2 + gnd_arc/2 * scale_right, gnd_vel  * scale_right)
-            self.legs[LegIndex.R3].move_to(3*pi/2 - gnd_arc/2 * scale_right, lift_vel * scale_right)
+            self.legs[LegIndex.L1].move_to(3*pi/2 + self.GND_ARC/2 * scale_left,  self.GND_VEL  * scale_left)
+            self.legs[LegIndex.L2].move_to(3*pi/2 - self.GND_ARC/2 * scale_left,  self.LIFT_VEL * scale_left)
+            self.legs[LegIndex.L3].move_to(3*pi/2 + self.GND_ARC/2 * scale_left,  self.GND_VEL  * scale_left)
+            self.legs[LegIndex.R1].move_to(3*pi/2 - self.GND_ARC/2 * scale_right, self.LIFT_VEL * scale_right)
+            self.legs[LegIndex.R2].move_to(3*pi/2 + self.GND_ARC/2 * scale_right, self.GND_VEL  * scale_right)
+            self.legs[LegIndex.R3].move_to(3*pi/2 - self.GND_ARC/2 * scale_right, self.LIFT_VEL * scale_right)
         else:
-            self.legs[LegIndex.L1].move_to(3*pi/2 - gnd_arc/2 * scale_left,  lift_vel * scale_left)
-            self.legs[LegIndex.L2].move_to(3*pi/2 + gnd_arc/2 * scale_left,  gnd_vel  * scale_left)
-            self.legs[LegIndex.L3].move_to(3*pi/2 - gnd_arc/2 * scale_left,  lift_vel * scale_left)
-            self.legs[LegIndex.R1].move_to(3*pi/2 + gnd_arc/2 * scale_right, gnd_vel  * scale_right)
-            self.legs[LegIndex.R2].move_to(3*pi/2 - gnd_arc/2 * scale_right, lift_vel * scale_right)
-            self.legs[LegIndex.R3].move_to(3*pi/2 + gnd_arc/2 * scale_right, gnd_vel  * scale_right)
+            self.legs[LegIndex.L1].move_to(3*pi/2 - self.GND_ARC/2 * scale_left,  self.LIFT_VEL * scale_left)
+            self.legs[LegIndex.L2].move_to(3*pi/2 + self.GND_ARC/2 * scale_left,  self.GND_VEL  * scale_left)
+            self.legs[LegIndex.L3].move_to(3*pi/2 - self.GND_ARC/2 * scale_left,  self.LIFT_VEL * scale_left)
+            self.legs[LegIndex.R1].move_to(3*pi/2 + self.GND_ARC/2 * scale_right, self.GND_VEL  * scale_right)
+            self.legs[LegIndex.R2].move_to(3*pi/2 - self.GND_ARC/2 * scale_right, self.LIFT_VEL * scale_right)
+            self.legs[LegIndex.R3].move_to(3*pi/2 + self.GND_ARC/2 * scale_right, self.GND_VEL  * scale_right)
 
         if all([leg.on_setpoint for leg in self.legs.values()]):
             self.step = 1 - self.step   # Switch steps
 
-        if abs(self.cmd_fwd) < 0.05:
+        if abs(self.cmd_fwd) < self.CMD_DEADBAND:
             self.set_state(ControlState.STAND)
 
     async def state_yaw(self):
         # Scale step arc length (i.e., between foot touchdown and liftoff points) by forward command
         scale = self.cmd_yaw
-        gnd_arc = pi/3   # Max arc length
-        gnd_vel = 0.5   # Max velocity on ground
-        lift_vel = 2   # Max lift velocity
 
         if self.step is 0:
-            self.legs[LegIndex.L1].move_to(3*pi/2 - gnd_arc/2 * scale, -gnd_vel  * scale)
-            self.legs[LegIndex.L2].move_to(3*pi/2 + gnd_arc/2 * scale, -lift_vel * scale)
-            self.legs[LegIndex.L3].move_to(3*pi/2 - gnd_arc/2 * scale, -gnd_vel  * scale)
-            self.legs[LegIndex.R1].move_to(3*pi/2 - gnd_arc/2 * scale,  lift_vel * scale)
-            self.legs[LegIndex.R2].move_to(3*pi/2 + gnd_arc/2 * scale,  gnd_vel  * scale)
-            self.legs[LegIndex.R3].move_to(3*pi/2 - gnd_arc/2 * scale,  lift_vel * scale)
+            self.legs[LegIndex.L1].move_to(3*pi/2 - self.GND_ARC/2 * scale, -self.GND_VEL  * scale)
+            self.legs[LegIndex.L2].move_to(3*pi/2 + self.GND_ARC/2 * scale, -self.LIFT_VEL * scale)
+            self.legs[LegIndex.L3].move_to(3*pi/2 - self.GND_ARC/2 * scale, -self.GND_VEL  * scale)
+            self.legs[LegIndex.R1].move_to(3*pi/2 - self.GND_ARC/2 * scale,  self.LIFT_VEL * scale)
+            self.legs[LegIndex.R2].move_to(3*pi/2 + self.GND_ARC/2 * scale,  self.GND_VEL  * scale)
+            self.legs[LegIndex.R3].move_to(3*pi/2 - self.GND_ARC/2 * scale,  self.LIFT_VEL * scale)
         else:
-            self.legs[LegIndex.L1].move_to(3*pi/2 + gnd_arc/2 * scale, -lift_vel * scale)
-            self.legs[LegIndex.L2].move_to(3*pi/2 - gnd_arc/2 * scale, -gnd_vel  * scale)
-            self.legs[LegIndex.L3].move_to(3*pi/2 + gnd_arc/2 * scale, -lift_vel * scale)
-            self.legs[LegIndex.R1].move_to(3*pi/2 + gnd_arc/2 * scale,  gnd_vel  * scale)
-            self.legs[LegIndex.R2].move_to(3*pi/2 - gnd_arc/2 * scale,  lift_vel * scale)
-            self.legs[LegIndex.R3].move_to(3*pi/2 + gnd_arc/2 * scale,  gnd_vel  * scale)
+            self.legs[LegIndex.L1].move_to(3*pi/2 + self.GND_ARC/2 * scale, -self.LIFT_VEL * scale)
+            self.legs[LegIndex.L2].move_to(3*pi/2 - self.GND_ARC/2 * scale, -self.GND_VEL  * scale)
+            self.legs[LegIndex.L3].move_to(3*pi/2 + self.GND_ARC/2 * scale, -self.LIFT_VEL * scale)
+            self.legs[LegIndex.R1].move_to(3*pi/2 + self.GND_ARC/2 * scale,  self.GND_VEL  * scale)
+            self.legs[LegIndex.R2].move_to(3*pi/2 - self.GND_ARC/2 * scale,  self.LIFT_VEL * scale)
+            self.legs[LegIndex.R3].move_to(3*pi/2 + self.GND_ARC/2 * scale,  self.GND_VEL  * scale)
 
         if all([leg.on_setpoint for leg in self.legs.values()]):
             self.step = 1 - self.step   # Switch steps
 
-        if abs(self.cmd_fwd) > 0.05 or abs(self.cmd_yaw) < 0.05:
+        if abs(self.cmd_fwd) > self.CMD_DEADBAND or abs(self.cmd_yaw) < self.CMD_DEADBAND:
             self.set_state(ControlState.STAND)
 
     def pet_watchdog(self):
@@ -265,6 +272,17 @@ class Flowergirl(object):
     @property
     def watchdog_alive(self):
         return not time.time() - self.watchdog_time > 1
+
+    def handle_cannon(self, cmd):
+        """Handle cannon command"""
+        if self.state in [ControlState.ESTOP, ControlState.STANDBY, ControlState.INIT]:
+            pass
+        elif cmd and not self.cmd_cannon:
+            self.cannon.on()
+        elif not cmd and self.cmd_cannon:
+            self.cannon.off()
+
+        self.cmd_cannon = cmd
 
     async def run_control(self):
         """High-level command state machine"""
@@ -327,7 +345,7 @@ class Flowergirl(object):
                 else:
                     self.cmd_fwd = cmd["fwd"]
                     self.cmd_yaw = cmd["yaw"]
-                    self.cmd_cannon = cmd["cannon"]
+                    self.handle_cannon(cmd["cannon"])
                     self.cmd_trigger = cmd["trigger"]
                     self.cmd_estop = cmd["estop"]
 
@@ -353,7 +371,7 @@ if __name__ == "__main__":
     #mc1 = MotorSerial("/dev/m1", 230400, 1)
     #mc2 = MotorSerial("/dev/m2", 230400, 1)
     #mc3 = MotorSerial("/dev/m3", 230400, 1)
-    mct = MotorSerial("/dev/ttyACM0", 921600, 1)   # DEBUG(syoo)
+    mct = MotorSerial("/dev/ttyACM0", 230400, 1)   # DEBUG(syoo)
 
     l1 = Leg(loop, "L1", Motor(loop, mct, 0))
     l2 = Leg(loop, "L2", Motor(loop, mct, 0))
@@ -361,8 +379,9 @@ if __name__ == "__main__":
     r1 = Leg(loop, "R1", Motor(loop, mct, 1), True)
     r2 = Leg(loop, "R2", Motor(loop, mct, 1), True)
     r3 = Leg(loop, "R3", Motor(loop, mct, 1), True)
+    cn = Cannon(loop, "Quiet", Motor(loop, mct, 0))
 
-    f = Flowergirl(loop, l1, l2, l3, r1, r2, r3)
+    f = Flowergirl(loop, l1, l2, l3, r1, r2, r3, cn)
 
     def sig_handler(signal, frame):
         f.stop()
