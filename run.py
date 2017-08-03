@@ -39,6 +39,11 @@ class ControlState(enum.Enum):
     YAW = 6
 
 class Flowergirl(object):
+    CMD_DEADBAND = 0.05   # Consider command values below this magnitude as zero
+    GND_ARC = pi/3   # Max arc length
+    GND_VEL = 0.5   # Max velocity on ground
+    LIFT_VEL = 2   # Max lift velocity
+
     def __init__(self, loop,
                        leg_left_forward,
                        leg_left_center,
@@ -181,10 +186,10 @@ class Flowergirl(object):
 
     async def state_sit(self):
         for leg in self.legs.values():
-            leg.move_to(pi/2, 1)
+            leg.move_to(3*pi/4, 0.5)
 
         if self.cmd_trigger and all([leg.on_setpoint for leg in self.legs.values()]):
-            if abs(self.cmd_fwd) > 0.05 or abs(self.cmd_yaw) > 0.05:
+            if abs(self.cmd_fwd) > self.CMD_DEADBAND or abs(self.cmd_yaw) > self.CMD_DEADBAND:
                 self._log.warn("Refusing to stand while joystick command is nonzero")
                 return
             self.set_state(ControlState.STAND)
@@ -195,9 +200,9 @@ class Flowergirl(object):
 
         if self.cmd_trigger and all([leg.on_setpoint for leg in self.legs.values()]):
             self.set_state(ControlState.SIT)
-        elif abs(self.cmd_fwd) > 0.05:
+        elif abs(self.cmd_fwd) > self.CMD_DEADBAND:
             self.set_state(ControlState.WALK)
-        elif abs(self.cmd_yaw) > 0.05:
+        elif abs(self.cmd_yaw) > self.CMD_DEADBAND:
             self.set_state(ControlState.YAW)
 
     async def state_walk(self):
@@ -206,61 +211,54 @@ class Flowergirl(object):
         scale_right = min(max(self.cmd_fwd + self.cmd_yaw, 1), -1)
 
         # If we get too close to negative scaling, we should switch to yaw mode.
-        if scale_left < 0.05 or scale_right < 0.05:
+        if scale_left < self.CMD_DEADBAND or scale_right < self.CMD_DEADBAND:
             self.set_state(ControlState.STAND)
             return
 
-        gnd_arc = pi/3   # Max arc length
-        gnd_vel = 0.5   # Max velocity on ground
-        lift_vel = 2   # Max lift velocity
-
         if self.step is 0:
-            self.legs[LegIndex.L1].move_to(3*pi/2 + gnd_arc/2 * scale_left,  gnd_vel  * scale_left)
-            self.legs[LegIndex.L2].move_to(3*pi/2 - gnd_arc/2 * scale_left,  lift_vel * scale_left)
-            self.legs[LegIndex.L3].move_to(3*pi/2 + gnd_arc/2 * scale_left,  gnd_vel  * scale_left)
-            self.legs[LegIndex.R1].move_to(3*pi/2 - gnd_arc/2 * scale_right, lift_vel * scale_right)
-            self.legs[LegIndex.R2].move_to(3*pi/2 + gnd_arc/2 * scale_right, gnd_vel  * scale_right)
-            self.legs[LegIndex.R3].move_to(3*pi/2 - gnd_arc/2 * scale_right, lift_vel * scale_right)
+            self.legs[LegIndex.L1].move_to(3*pi/2 + self.GND_ARC/2 * scale_left,  self.GND_VEL  * scale_left)
+            self.legs[LegIndex.L2].move_to(3*pi/2 - self.GND_ARC/2 * scale_left,  self.LIFT_VEL * scale_left)
+            self.legs[LegIndex.L3].move_to(3*pi/2 + self.GND_ARC/2 * scale_left,  self.GND_VEL  * scale_left)
+            self.legs[LegIndex.R1].move_to(3*pi/2 - self.GND_ARC/2 * scale_right, self.LIFT_VEL * scale_right)
+            self.legs[LegIndex.R2].move_to(3*pi/2 + self.GND_ARC/2 * scale_right, self.GND_VEL  * scale_right)
+            self.legs[LegIndex.R3].move_to(3*pi/2 - self.GND_ARC/2 * scale_right, self.LIFT_VEL * scale_right)
         else:
-            self.legs[LegIndex.L1].move_to(3*pi/2 - gnd_arc/2 * scale_left,  lift_vel * scale_left)
-            self.legs[LegIndex.L2].move_to(3*pi/2 + gnd_arc/2 * scale_left,  gnd_vel  * scale_left)
-            self.legs[LegIndex.L3].move_to(3*pi/2 - gnd_arc/2 * scale_left,  lift_vel * scale_left)
-            self.legs[LegIndex.R1].move_to(3*pi/2 + gnd_arc/2 * scale_right, gnd_vel  * scale_right)
-            self.legs[LegIndex.R2].move_to(3*pi/2 - gnd_arc/2 * scale_right, lift_vel * scale_right)
-            self.legs[LegIndex.R3].move_to(3*pi/2 + gnd_arc/2 * scale_right, gnd_vel  * scale_right)
+            self.legs[LegIndex.L1].move_to(3*pi/2 - self.GND_ARC/2 * scale_left,  self.LIFT_VEL * scale_left)
+            self.legs[LegIndex.L2].move_to(3*pi/2 + self.GND_ARC/2 * scale_left,  self.GND_VEL  * scale_left)
+            self.legs[LegIndex.L3].move_to(3*pi/2 - self.GND_ARC/2 * scale_left,  self.LIFT_VEL * scale_left)
+            self.legs[LegIndex.R1].move_to(3*pi/2 + self.GND_ARC/2 * scale_right, self.GND_VEL  * scale_right)
+            self.legs[LegIndex.R2].move_to(3*pi/2 - self.GND_ARC/2 * scale_right, self.LIFT_VEL * scale_right)
+            self.legs[LegIndex.R3].move_to(3*pi/2 + self.GND_ARC/2 * scale_right, self.GND_VEL  * scale_right)
 
         if all([leg.on_setpoint for leg in self.legs.values()]):
             self.step = 1 - self.step   # Switch steps
 
-        if abs(self.cmd_fwd) < 0.05:
+        if abs(self.cmd_fwd) < self.CMD_DEADBAND:
             self.set_state(ControlState.STAND)
 
     async def state_yaw(self):
         # Scale step arc length (i.e., between foot touchdown and liftoff points) by forward command
         scale = self.cmd_yaw
-        gnd_arc = pi/3   # Max arc length
-        gnd_vel = 0.5   # Max velocity on ground
-        lift_vel = 2   # Max lift velocity
 
         if self.step is 0:
-            self.legs[LegIndex.L1].move_to(3*pi/2 - gnd_arc/2 * scale, -gnd_vel  * scale)
-            self.legs[LegIndex.L2].move_to(3*pi/2 + gnd_arc/2 * scale, -lift_vel * scale)
-            self.legs[LegIndex.L3].move_to(3*pi/2 - gnd_arc/2 * scale, -gnd_vel  * scale)
-            self.legs[LegIndex.R1].move_to(3*pi/2 - gnd_arc/2 * scale,  lift_vel * scale)
-            self.legs[LegIndex.R2].move_to(3*pi/2 + gnd_arc/2 * scale,  gnd_vel  * scale)
-            self.legs[LegIndex.R3].move_to(3*pi/2 - gnd_arc/2 * scale,  lift_vel * scale)
+            self.legs[LegIndex.L1].move_to(3*pi/2 - self.GND_ARC/2 * scale, -self.GND_VEL  * scale)
+            self.legs[LegIndex.L2].move_to(3*pi/2 + self.GND_ARC/2 * scale, -self.LIFT_VEL * scale)
+            self.legs[LegIndex.L3].move_to(3*pi/2 - self.GND_ARC/2 * scale, -self.GND_VEL  * scale)
+            self.legs[LegIndex.R1].move_to(3*pi/2 - self.GND_ARC/2 * scale,  self.LIFT_VEL * scale)
+            self.legs[LegIndex.R2].move_to(3*pi/2 + self.GND_ARC/2 * scale,  self.GND_VEL  * scale)
+            self.legs[LegIndex.R3].move_to(3*pi/2 - self.GND_ARC/2 * scale,  self.LIFT_VEL * scale)
         else:
-            self.legs[LegIndex.L1].move_to(3*pi/2 + gnd_arc/2 * scale, -lift_vel * scale)
-            self.legs[LegIndex.L2].move_to(3*pi/2 - gnd_arc/2 * scale, -gnd_vel  * scale)
-            self.legs[LegIndex.L3].move_to(3*pi/2 + gnd_arc/2 * scale, -lift_vel * scale)
-            self.legs[LegIndex.R1].move_to(3*pi/2 + gnd_arc/2 * scale,  gnd_vel  * scale)
-            self.legs[LegIndex.R2].move_to(3*pi/2 - gnd_arc/2 * scale,  lift_vel * scale)
-            self.legs[LegIndex.R3].move_to(3*pi/2 + gnd_arc/2 * scale,  gnd_vel  * scale)
+            self.legs[LegIndex.L1].move_to(3*pi/2 + self.GND_ARC/2 * scale, -self.LIFT_VEL * scale)
+            self.legs[LegIndex.L2].move_to(3*pi/2 - self.GND_ARC/2 * scale, -self.GND_VEL  * scale)
+            self.legs[LegIndex.L3].move_to(3*pi/2 + self.GND_ARC/2 * scale, -self.LIFT_VEL * scale)
+            self.legs[LegIndex.R1].move_to(3*pi/2 + self.GND_ARC/2 * scale,  self.GND_VEL  * scale)
+            self.legs[LegIndex.R2].move_to(3*pi/2 - self.GND_ARC/2 * scale,  self.LIFT_VEL * scale)
+            self.legs[LegIndex.R3].move_to(3*pi/2 + self.GND_ARC/2 * scale,  self.GND_VEL  * scale)
 
         if all([leg.on_setpoint for leg in self.legs.values()]):
             self.step = 1 - self.step   # Switch steps
 
-        if abs(self.cmd_fwd) > 0.05 or abs(self.cmd_yaw) < 0.05:
+        if abs(self.cmd_fwd) > self.CMD_DEADBAND or abs(self.cmd_yaw) < self.CMD_DEADBAND:
             self.set_state(ControlState.STAND)
 
     def pet_watchdog(self):
