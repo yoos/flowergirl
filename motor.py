@@ -231,13 +231,14 @@ class Motor(object):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Flowergirl motor tester')
     parser.add_argument('--dev', type=str, help='Serial device', required=True)
-    parser.add_argument('--baud', type=int, help='Baudrate', default=921600)
+    parser.add_argument('--baud', type=int, help='Baudrate', default=230400)
     parser.add_argument('--index', type=int, help='Motor index', default=0)
     parser.add_argument('--cmd', type=str, help='Single motor command test', default='_get_cur')
     parser.add_argument('--cmdarg', type=float, help='Single motor command arg')
     parser.add_argument('--continuous', help='Continuous state update test', action='store_true')
-
     args = parser.parse_args()
+
+    flower_log.enable_debug()
 
     mser = MotorSerial(args.dev, args.baud, 5)
     loop = asyncio.get_event_loop()
