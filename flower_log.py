@@ -17,6 +17,10 @@ ch = logging.StreamHandler()
 ch.setLevel(logging.INFO)
 ch.setFormatter(formatter)
 
+ch_dbg = logging.StreamHandler()
+ch_dbg.setLevel(logging.DEBUG)
+ch_dbg.setFormatter(formatter)
+
 fh = logging.FileHandler(filename="log/flowergirl_{}.log".format(time.strftime("%Y-%m-%d_%H-%M-%S")))
 fh.setLevel(logging.DEBUG)
 fh.setFormatter(formatter)

@@ -87,7 +87,7 @@ class Flowergirl(object):
         # Logging
         self._log = logging.getLogger("Flowergirl")
         self._log.setLevel(logging.DEBUG)
-        self._log.addHandler(flower_log.ch)
+        self._log.addHandler(flower_log.ch if not debug else flower_log.ch_dbg)
         self._log.addHandler(flower_log.fh)
 
         self._control_task = self._loop.create_task(self.run_control())
@@ -114,12 +114,12 @@ class Flowergirl(object):
 
     # All desired motor values should be set together by the controller
     def set_leg_velocities(self, l1, l2, l3, r1, r2, r3):
-        self.legs[LegIndex.L1].set_vel_sp(l1)
-        self.legs[LegIndex.L2].set_vel_sp(l2)
-        self.legs[LegIndex.L3].set_vel_sp(l3)
-        self.legs[LegIndex.R1].set_vel_sp(r1)
-        self.legs[LegIndex.R2].set_vel_sp(r2)
-        self.legs[LegIndex.R3].set_vel_sp(r3)
+        self.legs[LegIndex.L1].move_to(None, l1)
+        self.legs[LegIndex.L2].move_to(None, l2)
+        self.legs[LegIndex.L3].move_to(None, l3)
+        self.legs[LegIndex.R1].move_to(None, r1)
+        self.legs[LegIndex.R2].move_to(None, r2)
+        self.legs[LegIndex.R3].move_to(None, r3)
 
     def set_leg_positions(self, l1, l2, l3, r1, r2, r3):
         self.legs[LegIndex.L1].set_pos(l1)
@@ -382,18 +382,18 @@ if __name__ == "__main__":
 
     loop = asyncio.get_event_loop()
 
-    #mc1 = MotorSerial("/dev/m1", 230400, 1)
-    #mc2 = MotorSerial("/dev/m2", 230400, 1)
-    #mc3 = MotorSerial("/dev/m3", 230400, 1)
-    mct = MotorSerial("/dev/m1", 230400, 1)   # DEBUG(syoo)
+    mc1 = MotorSerial("/dev/m1", 230400, 0.1)
+    mc2 = MotorSerial("/dev/m2", 230400, 0.1)
+    mc3 = MotorSerial("/dev/m3", 230400, 0.1)
+    #mct = MotorSerial("/dev/m1", 230400, 1)   # DEBUG(syoo)
 
-    l1 = Leg(loop, "L1", Motor(loop, mct, 0))
-    l2 = Leg(loop, "L2", Motor(loop, mct, 0))
-    l3 = Leg(loop, "L3", Motor(loop, mct, 0))
-    r1 = Leg(loop, "R1", Motor(loop, mct, 1), True)
-    r2 = Leg(loop, "R2", Motor(loop, mct, 1), True)
-    r3 = Leg(loop, "R3", Motor(loop, mct, 1), True)
-    cn = Cannon(loop, "Quiet", Motor(loop, mct, 0))
+    l1 = Leg(loop, "L1", Motor(loop, mc1, 0))
+    l2 = Leg(loop, "L2", Motor(loop, mc1, 0))
+    l3 = Leg(loop, "L3", Motor(loop, mc1, 0))
+    r1 = Leg(loop, "R1", Motor(loop, mc1, 1), True)
+    r2 = Leg(loop, "R2", Motor(loop, mc1, 1), True)
+    r3 = Leg(loop, "R3", Motor(loop, mc1, 1), True)
+    cn = Cannon(loop, "Quiet", Motor(loop, mc1, 0))
 
     f = Flowergirl(loop, l1, l2, l3, r1, r2, r3, cn)
 

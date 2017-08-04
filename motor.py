@@ -121,7 +121,7 @@ class MotorSerial(object):
         return self.ser.read(5)
 
 class Motor(object):
-    def __init__(self, loop, mser, index):
+    def __init__(self, loop, mser, index, debug=False):
         self._loop = loop
         self._mser = mser   # MotorSerial instance
         self._index = index   # Each controller controls two motors,   TODO(syoo): set back to `index` once protocol allows
@@ -132,11 +132,11 @@ class Motor(object):
 
         self._cur = 0
         self._vel = 0
-        self._pos = 0
+        self._pos = -1   # Uninitialized
 
         self._log = logging.getLogger("Motor[{}].{}".format(self.name, self._index))
         self._log.setLevel(logging.DEBUG)
-        self._log.addHandler(flower_log.ch)
+        self._log.addHandler(flower_log.ch if not debug else flower_log.ch_dbg)
         self._log.addHandler(flower_log.fh)
 
         self._task = self._loop.create_task(self.run())
@@ -188,8 +188,8 @@ class Motor(object):
                 # TODO(syoo): should use futures
 
             # Always poll these
-            self._cur = await self._loop.run_in_executor(None, self._get_cur)
-            self._vel = await self._loop.run_in_executor(None, self._get_vel)
+            #self._cur = await self._loop.run_in_executor(None, self._get_cur)
+            #self._vel = await self._loop.run_in_executor(None, self._get_vel)
             self._pos = await self._loop.run_in_executor(None, self._get_pos)
 
             # Always command velocity
