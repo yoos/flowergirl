@@ -197,8 +197,7 @@ class Flowergirl(object):
     async def state_sit(self):
         if self._state_change:
             for leg in self.legs.values():
-                #leg.move_to(3*pi/4, 0.5)
-                leg.move_to(0, 0.5)
+                leg.move_to(3*pi/4, 0.5)
             self._state_change = False
 
         if self.cmd_hat_y > 0 and all([leg.on_setpoint for leg in self.legs.values()]):
@@ -210,8 +209,7 @@ class Flowergirl(object):
     async def state_stand(self):
         if self._state_change:
             for leg in self.legs.values():
-                #leg.move_to(3*pi/2, 0.5)
-                leg.move_to(0, 0.5)
+                leg.move_to(3*pi/2, 0.5)
             self._state_change = True
 
         if self.cmd_hat_y < 0:
