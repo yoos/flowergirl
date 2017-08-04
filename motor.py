@@ -90,6 +90,14 @@ class MotorSerial(object):
         r = self.read_bytes(data_class, data_inst, 8)
         return struct.unpack('>q', r[3:11])[0]
 
+    # Write unsigned 8
+    def write_u8(self, data_class, data_inst, field):
+        dat = bytearray([0x81, data_class, data_inst])
+        dat.append(field)
+        dat = append_checksum(dat)
+        self.ser.write(dat)
+        return self.ser.read(5)
+        
     # Write unsigned 32
     def write_u32(self, data_class, data_inst, field):
         dat = bytearray([(0x84), data_class, data_inst])
@@ -116,7 +124,7 @@ class Motor(object):
     def __init__(self, loop, mser, index):
         self._loop = loop
         self._mser = mser   # MotorSerial instance
-        self._index = 0   # Each controller controls two motors,   TODO(syoo): set back to `index` once protocol allows
+        self._index = index   # Each controller controls two motors,   TODO(syoo): set back to `index` once protocol allows
         self._stopflag = False
 
         self._read_requests = []
@@ -190,11 +198,11 @@ class Motor(object):
                 self._log.error("Received error: {}".format(r))
 
     def _disable(self):
-        self._mser.write_u32((self._index<<7) + SYSTEM_STATE_BASE, SYS_OUTPUT_ENABLE, 0)
+        self._mser.write_u8((self._index<<7) + SYSTEM_STATE_BASE, SYS_OUTPUT_ENABLE, 0)
         self._vel_sp = 0
 
     def _enable(self):
-        self._mser.write_u32((self._index<<7) + SYSTEM_STATE_BASE, SYS_OUTPUT_ENABLE, 1)
+        self._mser.write_u8((self._index<<7) + SYSTEM_STATE_BASE, SYS_OUTPUT_ENABLE, 1)
 
     def _get_cur(self):
         """Get current in amps"""
