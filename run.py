@@ -58,7 +58,8 @@ class Flowergirl(object):
         self.cmd_fwd = 0.0   # [-1, 1]
         self.cmd_yaw = 0.0   # [-1, 1]
         self.cmd_cannon  = False
-        self.cmd_trigger = False   # Used to toggle between sit/stand
+        self.cmd_trigger = False
+        self.cmd_hat_y = 0   # Used to toggle between sit/stand
         self.cmd_estop  = True
         self.state = ControlState.ESTOP
         self.step = 0   # Switch between "left" and "right" steps
@@ -67,6 +68,10 @@ class Flowergirl(object):
         self.debug = debug
 
         self._state_change = True   # State change flag
+
+        # Scaling values used for control
+        self._scale_left = 0.0
+        self._scale_right = 0.0
 
         # Comm socket
         self.sock = None
@@ -190,80 +195,86 @@ class Flowergirl(object):
         self.set_state(ControlState.SIT)
 
     async def state_sit(self):
-        for leg in self.legs.values():
-            leg.move_to(3*pi/4, 0.5)
+        if self._state_change:
+            for leg in self.legs.values():
+                #leg.move_to(3*pi/4, 0.5)
+                leg.move_to(0, 0.5)
+            self._state_change = False
 
-        if self.cmd_trigger and all([leg.on_setpoint for leg in self.legs.values()]):
+        if self.cmd_hat_y > 0 and all([leg.on_setpoint for leg in self.legs.values()]):
             if abs(self.cmd_fwd) > self.CMD_DEADBAND or abs(self.cmd_yaw) > self.CMD_DEADBAND:
                 self._log.warn("Refusing to stand while joystick command is nonzero")
                 return
             self.set_state(ControlState.STAND)
 
     async def state_stand(self):
-        for leg in self.legs.values():
-            leg.move_to(3*pi/2, 0.5)
+        if self._state_change:
+            for leg in self.legs.values():
+                #leg.move_to(3*pi/2, 0.5)
+                leg.move_to(0, 0.5)
+            self._state_change = True
 
-        if self.cmd_trigger and all([leg.on_setpoint for leg in self.legs.values()]):
+        if self.cmd_hat_y < 0:
             self.set_state(ControlState.SIT)
-        elif abs(self.cmd_fwd) > self.CMD_DEADBAND:
-            self.set_state(ControlState.WALK)
-        elif abs(self.cmd_yaw) > self.CMD_DEADBAND:
-            self.set_state(ControlState.YAW)
+        elif all([leg.on_setpoint for leg in self.legs.values()]):
+            if abs(self._scale_left) < self.CMD_DEADBAND and abs(self._scale_right) < self.CMD_DEADBAND:
+                pass
+            elif (self._scale_left < self.CMD_DEADBAND) ^ (self._scale_right < self.CMD_DEADBAND):
+                self.set_state(ControlState.YAW)
+            else:
+                self.set_state(ControlState.WALK)
 
     async def state_walk(self):
-        # Scale step arc length (i.e., between foot touchdown and liftoff points) by forward command
-        scale_left = min(max(self.cmd_fwd - self.cmd_yaw, 1), -1)
-        scale_right = min(max(self.cmd_fwd + self.cmd_yaw, 1), -1)
-
         # If we get too close to negative scaling, we should switch to yaw mode.
-        if scale_left < self.CMD_DEADBAND or scale_right < self.CMD_DEADBAND:
+        if (self._scale_left < self.CMD_DEADBAND) ^ (self._scale_right < self.CMD_DEADBAND):
             self.set_state(ControlState.STAND)
             return
 
         if self.step is 0:
-            self.legs[LegIndex.L1].move_to(3*pi/2 + self.GND_ARC/2 * scale_left,  self.GND_VEL  * scale_left)
-            self.legs[LegIndex.L2].move_to(3*pi/2 - self.GND_ARC/2 * scale_left,  self.LIFT_VEL * scale_left)
-            self.legs[LegIndex.L3].move_to(3*pi/2 + self.GND_ARC/2 * scale_left,  self.GND_VEL  * scale_left)
-            self.legs[LegIndex.R1].move_to(3*pi/2 - self.GND_ARC/2 * scale_right, self.LIFT_VEL * scale_right)
-            self.legs[LegIndex.R2].move_to(3*pi/2 + self.GND_ARC/2 * scale_right, self.GND_VEL  * scale_right)
-            self.legs[LegIndex.R3].move_to(3*pi/2 - self.GND_ARC/2 * scale_right, self.LIFT_VEL * scale_right)
+            self.legs[LegIndex.L1].move_to(3*pi/2 + self.GND_ARC/2 * self._scale_left,  self.GND_VEL  * self._scale_left)
+            self.legs[LegIndex.L2].move_to(3*pi/2 - self.GND_ARC/2 * self._scale_left,  self.LIFT_VEL * self._scale_left)
+            self.legs[LegIndex.L3].move_to(3*pi/2 + self.GND_ARC/2 * self._scale_left,  self.GND_VEL  * self._scale_left)
+            self.legs[LegIndex.R1].move_to(3*pi/2 - self.GND_ARC/2 * self._scale_right, self.LIFT_VEL * self._scale_right)
+            self.legs[LegIndex.R2].move_to(3*pi/2 + self.GND_ARC/2 * self._scale_right, self.GND_VEL  * self._scale_right)
+            self.legs[LegIndex.R3].move_to(3*pi/2 - self.GND_ARC/2 * self._scale_right, self.LIFT_VEL * self._scale_right)
         else:
-            self.legs[LegIndex.L1].move_to(3*pi/2 - self.GND_ARC/2 * scale_left,  self.LIFT_VEL * scale_left)
-            self.legs[LegIndex.L2].move_to(3*pi/2 + self.GND_ARC/2 * scale_left,  self.GND_VEL  * scale_left)
-            self.legs[LegIndex.L3].move_to(3*pi/2 - self.GND_ARC/2 * scale_left,  self.LIFT_VEL * scale_left)
-            self.legs[LegIndex.R1].move_to(3*pi/2 + self.GND_ARC/2 * scale_right, self.GND_VEL  * scale_right)
-            self.legs[LegIndex.R2].move_to(3*pi/2 - self.GND_ARC/2 * scale_right, self.LIFT_VEL * scale_right)
-            self.legs[LegIndex.R3].move_to(3*pi/2 + self.GND_ARC/2 * scale_right, self.GND_VEL  * scale_right)
+            self.legs[LegIndex.L1].move_to(3*pi/2 - self.GND_ARC/2 * self._scale_left,  self.LIFT_VEL * self._scale_left)
+            self.legs[LegIndex.L2].move_to(3*pi/2 + self.GND_ARC/2 * self._scale_left,  self.GND_VEL  * self._scale_left)
+            self.legs[LegIndex.L3].move_to(3*pi/2 - self.GND_ARC/2 * self._scale_left,  self.LIFT_VEL * self._scale_left)
+            self.legs[LegIndex.R1].move_to(3*pi/2 + self.GND_ARC/2 * self._scale_right, self.GND_VEL  * self._scale_right)
+            self.legs[LegIndex.R2].move_to(3*pi/2 - self.GND_ARC/2 * self._scale_right, self.LIFT_VEL * self._scale_right)
+            self.legs[LegIndex.R3].move_to(3*pi/2 + self.GND_ARC/2 * self._scale_right, self.GND_VEL  * self._scale_right)
 
         if all([leg.on_setpoint for leg in self.legs.values()]):
             self.step = 1 - self.step   # Switch steps
 
-        if abs(self.cmd_fwd) < self.CMD_DEADBAND:
+        if abs(self._scale_left) < self.CMD_DEADBAND and abs(self._scale_right) < self.CMD_DEADBAND:
             self.set_state(ControlState.STAND)
 
     async def state_yaw(self):
-        # Scale step arc length (i.e., between foot touchdown and liftoff points) by forward command
-        scale = self.cmd_yaw
+        # Override scaling values for yaw
+        self._scale_left = -self.cmd_yaw
+        self._scale_right = self.cmd_yaw
 
         if self.step is 0:
-            self.legs[LegIndex.L1].move_to(3*pi/2 - self.GND_ARC/2 * scale, -self.GND_VEL  * scale)
-            self.legs[LegIndex.L2].move_to(3*pi/2 + self.GND_ARC/2 * scale, -self.LIFT_VEL * scale)
-            self.legs[LegIndex.L3].move_to(3*pi/2 - self.GND_ARC/2 * scale, -self.GND_VEL  * scale)
-            self.legs[LegIndex.R1].move_to(3*pi/2 - self.GND_ARC/2 * scale,  self.LIFT_VEL * scale)
-            self.legs[LegIndex.R2].move_to(3*pi/2 + self.GND_ARC/2 * scale,  self.GND_VEL  * scale)
-            self.legs[LegIndex.R3].move_to(3*pi/2 - self.GND_ARC/2 * scale,  self.LIFT_VEL * scale)
+            self.legs[LegIndex.L1].move_to(3*pi/2 - self.GND_ARC/2 * self.cmd_yaw, self.GND_VEL  * self._scale_left)
+            self.legs[LegIndex.L2].move_to(3*pi/2 + self.GND_ARC/2 * self.cmd_yaw, self.LIFT_VEL * self._scale_left)
+            self.legs[LegIndex.L3].move_to(3*pi/2 - self.GND_ARC/2 * self.cmd_yaw, self.GND_VEL  * self._scale_left)
+            self.legs[LegIndex.R1].move_to(3*pi/2 - self.GND_ARC/2 * self.cmd_yaw, self.LIFT_VEL * self._scale_right)
+            self.legs[LegIndex.R2].move_to(3*pi/2 + self.GND_ARC/2 * self.cmd_yaw, self.GND_VEL  * self._scale_right)
+            self.legs[LegIndex.R3].move_to(3*pi/2 - self.GND_ARC/2 * self.cmd_yaw, self.LIFT_VEL * self._scale_right)
         else:
-            self.legs[LegIndex.L1].move_to(3*pi/2 + self.GND_ARC/2 * scale, -self.LIFT_VEL * scale)
-            self.legs[LegIndex.L2].move_to(3*pi/2 - self.GND_ARC/2 * scale, -self.GND_VEL  * scale)
-            self.legs[LegIndex.L3].move_to(3*pi/2 + self.GND_ARC/2 * scale, -self.LIFT_VEL * scale)
-            self.legs[LegIndex.R1].move_to(3*pi/2 + self.GND_ARC/2 * scale,  self.GND_VEL  * scale)
-            self.legs[LegIndex.R2].move_to(3*pi/2 - self.GND_ARC/2 * scale,  self.LIFT_VEL * scale)
-            self.legs[LegIndex.R3].move_to(3*pi/2 + self.GND_ARC/2 * scale,  self.GND_VEL  * scale)
+            self.legs[LegIndex.L1].move_to(3*pi/2 + self.GND_ARC/2 * self.cmd_yaw, self.LIFT_VEL * self._scale_left)
+            self.legs[LegIndex.L2].move_to(3*pi/2 - self.GND_ARC/2 * self.cmd_yaw, self.GND_VEL  * self._scale_left)
+            self.legs[LegIndex.L3].move_to(3*pi/2 + self.GND_ARC/2 * self.cmd_yaw, self.LIFT_VEL * self._scale_left)
+            self.legs[LegIndex.R1].move_to(3*pi/2 + self.GND_ARC/2 * self.cmd_yaw, self.GND_VEL  * self._scale_right)
+            self.legs[LegIndex.R2].move_to(3*pi/2 - self.GND_ARC/2 * self.cmd_yaw, self.LIFT_VEL * self._scale_right)
+            self.legs[LegIndex.R3].move_to(3*pi/2 + self.GND_ARC/2 * self.cmd_yaw, self.GND_VEL  * self._scale_right)
 
         if all([leg.on_setpoint for leg in self.legs.values()]):
             self.step = 1 - self.step   # Switch steps
 
-        if abs(self.cmd_fwd) > self.CMD_DEADBAND or abs(self.cmd_yaw) < self.CMD_DEADBAND:
+        if abs(self._scale_left) < self.CMD_DEADBAND and abs(self._scale_right) < self.CMD_DEADBAND:
             self.set_state(ControlState.STAND)
 
     def pet_watchdog(self):
@@ -339,6 +350,8 @@ class Flowergirl(object):
                     self._log.error("Yaw velocity must be within [-1, 1]")
                 elif type(cmd["cannon"]) is not int:
                     self._log.error("Cannon command must be a boolean")
+                elif type(cmd["hat_y"]) is not int:
+                    self._log.error("Hat value should be an int")
                 elif type(cmd["estop"]) is not bool:
                     self._log.error("Estop command must be a boolean")
                     self.cmd_estop = True   # Assume Estop if input is bad
@@ -347,7 +360,10 @@ class Flowergirl(object):
                     self.cmd_yaw = cmd["yaw"]
                     self.handle_cannon(cmd["cannon"])
                     self.cmd_trigger = cmd["trigger"]
+                    self.cmd_hat_y = cmd["hat_y"]
                     self.cmd_estop = cmd["estop"]
+                    self._scale_left = max(min(self.cmd_fwd - self.cmd_yaw, 1), -1)
+                    self._scale_right = max(min(self.cmd_fwd + self.cmd_yaw, 1), -1)
 
                 self.pet_watchdog()
 
@@ -371,7 +387,7 @@ if __name__ == "__main__":
     #mc1 = MotorSerial("/dev/m1", 230400, 1)
     #mc2 = MotorSerial("/dev/m2", 230400, 1)
     #mc3 = MotorSerial("/dev/m3", 230400, 1)
-    mct = MotorSerial("/dev/ttyACM0", 230400, 1)   # DEBUG(syoo)
+    mct = MotorSerial("/dev/m1", 230400, 1)   # DEBUG(syoo)
 
     l1 = Leg(loop, "L1", Motor(loop, mct, 0))
     l2 = Leg(loop, "L2", Motor(loop, mct, 0))

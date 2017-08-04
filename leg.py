@@ -58,7 +58,7 @@ class Leg(object):
     def pos(self):
         """Get position in radians"""
         raw_pos = self._motor.pos
-        p = raw_pos   # TODO(syoo)
+        p = (raw_pos - self._zero) % (2*pi)   # TODO(syoo)
         return p
 
     def stop(self):
@@ -158,6 +158,7 @@ class Leg(object):
                 if abs(err) > self._hys_lo:
                     self._motor.set_vel_sp(self._vel_sp)   # No matter what, move in specified direction
                 else:
+                    self._on_sp = True   # On target
                     self._motor.set_vel_sp(0)
 
             await asyncio.sleep(0.002)   # TODO(syoo): properly implement control freq
