@@ -57,11 +57,9 @@ class Leg(object):
     @property
     def pos(self):
         """Get position in radians"""
-        pos = self._motor.pos
+        pos = self._motor.pos if not self._reverse else self.reverse_pos(self._motor.pos)
         if self._zero is not None:
             pos = (pos - self._zero) % (2*pi)
-        if self._reverse:
-            pos = self.reverse_pos(pos)
         return pos
 
     def stop(self):
