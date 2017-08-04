@@ -36,6 +36,7 @@ class MotorSerial(object):
     def __init__(self, port, baud, tout=1):
         self._port = port
         self.ser = serial.Serial(port, baud, timeout=tout)
+        self.ser.flush()
 
     @property
     def name(self):
@@ -170,7 +171,7 @@ class Motor(object):
         self._vel_sp = vel
 
     async def run(self):
-        self._mser.ser.flush()
+        self._log.debug("ENTER")
 
         last_update = time.time()
         update_count = 0
@@ -182,11 +183,6 @@ class Motor(object):
                 last_update = now
                 update_count = 0
 
-            # Special requests
-            for req in self._read_requests:
-                await self._loop.run_in_executor(None, req)
-                # TODO(syoo): should use futures
-
             # Always poll these
             #self._cur = await self._loop.run_in_executor(None, self._get_cur)
             #self._vel = await self._loop.run_in_executor(None, self._get_vel)
@@ -196,6 +192,10 @@ class Motor(object):
             r = await self._loop.run_in_executor(None, self._set_vel, self._vel_sp)
             if r[0] == '\xe0':
                 self._log.error("Received error: {}".format(r))
+
+            await asyncio.sleep(0.002)
+
+        self._log.debug("EXIT")
 
     def _disable(self):
         self._mser.write_u8((self._index<<7) + SYSTEM_STATE_BASE, SYS_OUTPUT_ENABLE, 0)

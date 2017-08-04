@@ -91,11 +91,15 @@ class Leg(object):
         self._zero = self._motor.pos if not self._reverse else self.reverse_pos(self._motor.pos)
         self._vel_sp = 0
         self._pos_sp = None
+        self._on_sp = True
         self._log.info("Zero angle: {:.2f}".format(self._zero))
 
     def clear_zero(self):
         """Clear leg zero angle"""
         self._zero = None
+        self._vel_sp = 0
+        self._pos_sp = None
+        self._on_sp = False
         self._log.info("Zero angle cleared")
 
     def reverse_pos(self, pos):
@@ -126,7 +130,13 @@ class Leg(object):
             now = time.time()
             update_count += 1
             if now - last_update > 1:
-                self._log.debug("Pos: {:.2f} Control freq: {} Hz".format(self.pos, update_count))
+                self._log.debug("Motor pos: {:.3f} Pos: {:.2f} Zero: {:.3f} Setpoint_P: {:.3f} Enabled: {} Control freq: {} Hz".format(
+                    self._motor.pos,
+                    self.pos,
+                    self._zero if self._zero is not None else -1,
+                    self._pos_sp if self._pos_sp is not None else -1,
+                    self._enabled,
+                    update_count))
                 last_update = now
                 update_count = 0
 
@@ -135,15 +145,13 @@ class Leg(object):
                 await asyncio.sleep(0.05)
                 continue
 
-            # DEBUG(syoo): Ignore control unless this is Leg L1
-            #if self._name != "L1":
-            #    self._on_sp = True
-            #    await asyncio.sleep(0.1)
-            #    continue
+            # DEBUG(syoo): for testing
+            if self._name not in ["L1","Test"]:
+                self._on_sp = True
+                await asyncio.sleep(0.1)
+                continue
 
             await asyncio.sleep(0.004)   # TODO(syoo): properly implement control freq
-
-            self._log.debug("Motor pos: {:.3f} Pos: {:.3f} Zero: {:.3f}".format(self._motor.pos, self.pos, self._zero if self._zero is not None else -1))
 
             # Recalculate setpoints for control (need to deal with reverse, etc)
             vel_sp = self._vel_sp if not self._reverse else -self._vel_sp
@@ -196,7 +204,7 @@ if __name__ == "__main__":
     # Motor control
     mser = MotorSerial(args.dev, args.baud, 5)
     loop = asyncio.get_event_loop()
-    m = Motor(loop, mser, args.index)
+    m = Motor(loop, mser, args.index, debug=True)
 
     # Leg control
     l = Leg(loop, "Test", m, reverse=args.reverse, debug=True)

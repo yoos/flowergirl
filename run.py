@@ -172,27 +172,26 @@ class Flowergirl(object):
         """Zero the legs by turning them backwards until the toes hit the ground. Open-loop."""
         # Watchdog and E-stop don't work in this state due to the simplistic sleeps.
         if any([not leg.calibrated for leg in self.legs.values()]):
-            self.set_leg_velocities(0, 0, -1, 0, 0, -1)
-            self._log.info("Zeroing rear legs")
-            await asyncio.sleep(1)
-            self.set_leg_velocities(0, -1, -1, 0, -1, -1)
-            self._log.info("Zeroing center legs")
-            await asyncio.sleep(1)
-            self.set_leg_velocities(-1, -1, -1, -1, -1, -1)
-            self._log.info("Zeroing front legs")
-            await asyncio.sleep(1)
-            self.set_leg_velocities(-1, -1, 0, -1, -1, 0)
-            await asyncio.sleep(1)
-            self.set_leg_velocities(-1, 0, 0, -1, 0, 0)
-            await asyncio.sleep(1)
-            self.set_leg_velocities(0, 0, 0, 0, 0, 0)
+            #self._log.info("Zeroing rear legs")
+            #await asyncio.sleep(1)
+            #self.set_leg_velocities(0, -1, -1, 0, -1, -1)
+            #self._log.info("Zeroing center legs")
+            #await asyncio.sleep(1)
+            #self.set_leg_velocities(-1, -1, -1, -1, -1, -1)
+            #self._log.info("Zeroing front legs")
+            #await asyncio.sleep(1)
+            #self.set_leg_velocities(-1, -1, 0, -1, -1, 0)
+            #await asyncio.sleep(1)
+            #self.set_leg_velocities(-1, 0, 0, -1, 0, 0)
+            #await asyncio.sleep(1)
+            #self.set_leg_velocities(0, 0, 0, 0, 0, 0)
 
             for leg in self.legs.values():
-                leg.set_zero()
+                if leg.on_setpoint:
+                    leg.set_zero()
         else:
-            self._log.info("Legs already calibrated")
-
-        self.set_state(ControlState.SIT)
+            self._log.info("Legs calibrated")
+            self.set_state(ControlState.SIT)
 
     async def state_sit(self):
         if self._state_change:
@@ -382,18 +381,27 @@ if __name__ == "__main__":
 
     loop = asyncio.get_event_loop()
 
-    mc1 = MotorSerial("/dev/m1", 230400, 0.1)
-    mc2 = MotorSerial("/dev/m2", 230400, 0.1)
-    mc3 = MotorSerial("/dev/m3", 230400, 0.1)
+    mc1 = MotorSerial("/dev/m1", 230400, 0.2)
+    mc2 = MotorSerial("/dev/m2", 230400, 0.2)
+    mc3 = MotorSerial("/dev/m3", 230400, 0.2)
+    mc4 = MotorSerial("/dev/m4", 230400, 0.2)
     #mct = MotorSerial("/dev/m1", 230400, 1)   # DEBUG(syoo)
 
-    l1 = Leg(loop, "L1", Motor(loop, mc1, 0))
-    l2 = Leg(loop, "L2", Motor(loop, mc1, 0))
-    l3 = Leg(loop, "L3", Motor(loop, mc1, 0))
-    r1 = Leg(loop, "R1", Motor(loop, mc1, 1), True)
-    r2 = Leg(loop, "R2", Motor(loop, mc1, 1), True)
-    r3 = Leg(loop, "R3", Motor(loop, mc1, 1), True)
-    cn = Cannon(loop, "Quiet", Motor(loop, mc1, 0))
+    ml1 = Motor(loop, mc1, 0, debug=True)
+    ml2 = Motor(loop, mc2, 0)
+    ml3 = Motor(loop, mc3, 0)
+    mr1 = Motor(loop, mc1, 1)
+    mr2 = Motor(loop, mc2, 1)
+    mr3 = Motor(loop, mc3, 1)
+    mcn = Motor(loop, mc4, 0)
+
+    l1 = Leg(loop, "L1", ml1, debug=True)
+    l2 = Leg(loop, "L2", ml2)
+    l3 = Leg(loop, "L3", ml3)
+    r1 = Leg(loop, "R1", mr1, reverse=True)
+    r2 = Leg(loop, "R2", mr2, reverse=True)
+    r3 = Leg(loop, "R3", mr3, reverse=True)
+    cn = Cannon(loop, "Quiet", mcn)
 
     f = Flowergirl(loop, l1, l2, l3, r1, r2, r3, cn)
 
