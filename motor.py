@@ -221,7 +221,7 @@ class Motor(object):
             st = await self._loop.run_in_executor(None, self._mser.read_u8, (i<<7) + SYSTEM_STATE_BASE, SYS_DRIVE_STATUS)
             oe = await self._loop.run_in_executor(None, self._mser.read_u8, (i<<7) + SYSTEM_STATE_BASE, SYS_OUTPUT_ENABLE)
             p = await self._loop.run_in_executor(None, self._mser.read_f32, (i<<7) + P_BASE, P_MEASURED)
-            self._log.info("Side {} status: {} pos: {} enabled: {}".format(i, st, p, oe))
+            self._log.info("Side {}  status: {}  pos: {}  enabled: {}".format(i, st, p, oe))
 
         last_update = time.time()
         update_count = 0
@@ -229,7 +229,7 @@ class Motor(object):
             now = time.time()
             update_count += 1
             if now - last_update > 1:
-                self._log.debug("P0: {:.3f} P1: {:.3f} (Refresh: {} Hz)".format(self._pos[0], self._pos[1], update_count))
+                self._log.debug("P0: {:.3f}  P1: {:.3f}  (Refresh: {} Hz)".format(self._pos[0], self._pos[1], update_count))
                 last_update = now
                 update_count = 0
 

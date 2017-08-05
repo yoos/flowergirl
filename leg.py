@@ -130,7 +130,7 @@ class Leg(object):
             now = time.time()
             update_count += 1
             if now - last_update > 1:
-                self._log.debug("mp: {:.3f} p: {:.2f} z: {:.3f} spp: {:.3f} en: {} freq: {} Hz".format(
+                self._log.debug("mp: {:.3f}  p: {:.2f}  z: {:.3f}  spp: {:.3f}  en: {}  freq: {} Hz".format(
                     self._motor.pos[self._index],
                     self.pos,
                     self._zero if self._zero is not None else -1,
