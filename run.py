@@ -91,23 +91,21 @@ class Flowergirl(object):
         self._log.addHandler(flower_log.fh)
 
         self._control_task = self._loop.create_task(self.run_control())
-        self._comm_task = self._loop.run_until_complete(asyncio.start_server(self.handle_recv, "", 55000, loop=self._loop))
-        self._log.info("Waiting for command connection on {}".format(self._comm_task.sockets[0].getsockname()))
+        self._comm_coro = asyncio.start_server(self.handle_recv, "", 55000, loop=self._loop)
+        self._comm_srv = self._loop.run_until_complete(self._comm_coro)
+        self._log.info("Waiting for command connection on {}".format(self._comm_srv.sockets[0].getsockname()))
 
     @property
     def control_task(self):
         return self._control_task
 
     @property
-    def comm_task(self):
-        return self._comm_task
+    def comm_srv(self):
+        return self._comm_srv
 
     def stop(self):
-        for leg in self.legs.values():
-            leg.stop()
-
-        self._log.info("Stopping")
         self.stopflag = True
+        self._log.info("Stop flag set")
 
     def print_cmds(self):
         self._log.debug("Forward: {:+1.2f}   Yaw: {:+1.2f}   Cannon: {}   Estop: {}".format(self.cmd_fwd, self.cmd_yaw, "On" if self.cmd_cannon else "Off", self.cmd_estop))
@@ -323,6 +321,13 @@ class Flowergirl(object):
             await state_funcs[self.state]()
             await asyncio.sleep(0.005)   # TODO(syoo): do this properly
 
+        for leg in self.legs.values():
+            leg.stop()
+        self.cannon.stop()
+        self._comm_srv.close()
+
+        self._log.debug("EXIT")
+
     async def handle_recv(self, reader, writer):
         """Command connection callback"""
         peername = writer.get_extra_info('peername')
@@ -381,27 +386,24 @@ if __name__ == "__main__":
 
     loop = asyncio.get_event_loop()
 
-    mc1 = MotorSerial("/dev/m1", 230400, 0.2)
-    mc2 = MotorSerial("/dev/m2", 230400, 0.2)
-    mc3 = MotorSerial("/dev/m3", 230400, 0.2)
-    mc4 = MotorSerial("/dev/m4", 230400, 0.2)
-    #mct = MotorSerial("/dev/m1", 230400, 1)   # DEBUG(syoo)
+    # TODO(syoo): un-fake the other three motors once we have hardware
+    ser1 = MotorSerial("/dev/m1", 230400, 2)
+    ser2 = MotorSerial("/dev/m2", 230400, 2, fake=True)
+    ser3 = MotorSerial("/dev/m3", 230400, 2, fake=True)
+    ser4 = MotorSerial("/dev/m4", 230400, 2, fake=True)
 
-    ml1 = Motor(loop, mc1, 0, debug=True)
-    ml2 = Motor(loop, mc2, 0)
-    ml3 = Motor(loop, mc3, 0)
-    mr1 = Motor(loop, mc1, 1)
-    mr2 = Motor(loop, mc2, 1)
-    mr3 = Motor(loop, mc3, 1)
-    mcn = Motor(loop, mc4, 0)
+    m1  = Motor(loop, ser1, debug=True)
+    m2  = Motor(loop, ser2, fake=True)
+    m3  = Motor(loop, ser3, fake=True)
+    mcn = Motor(loop, ser4, fake=True)
 
-    l1 = Leg(loop, "L1", ml1, debug=True)
-    l2 = Leg(loop, "L2", ml2)
-    l3 = Leg(loop, "L3", ml3)
-    r1 = Leg(loop, "R1", mr1, reverse=True)
-    r2 = Leg(loop, "R2", mr2, reverse=True)
-    r3 = Leg(loop, "R3", mr3, reverse=True)
-    cn = Cannon(loop, "Quiet", mcn)
+    l1 = Leg(loop, "L1", m1, 0, debug=True)
+    l2 = Leg(loop, "L2", m2, 0)
+    l3 = Leg(loop, "L3", m3, 0)
+    r1 = Leg(loop, "R1", m1, 1, reverse=True)
+    r2 = Leg(loop, "R2", m2, 1, reverse=True)
+    r3 = Leg(loop, "R3", m3, 1, reverse=True)
+    cn = Cannon(loop, "Quiet", mcn, 0)
 
     f = Flowergirl(loop, l1, l2, l3, r1, r2, r3, cn)
 
@@ -409,10 +411,17 @@ if __name__ == "__main__":
         f.stop()
     signal.signal(signal.SIGINT, sig_handler)
 
+    future = asyncio.gather(
+            m1.task, m2.task, m3.task, mcn.task,
+            l1.task, l2.task, l3.task,
+            r1.task, r2.task, r3.task,
+            cn.task,
+            f.control_task)
+
     try:
         print("Entering event loop")
         print("Ctrl+C to stop")
-        loop.run_until_complete(f.control_task)
+        loop.run_until_complete(future)
     finally:
         print("Closing event loop")
         loop.close()

@@ -17,10 +17,11 @@ from math import pi
 from motor import Motor, MotorSerial
 
 class Leg(object):
-    def __init__(self, loop, name, motor, reverse=False, debug=False):
+    def __init__(self, loop, name, motor, index, reverse=False, debug=False):
         self._loop = loop
         self._name = name
         self._motor = motor
+        self._index = index   # Motor index
         self._reverse = reverse   # Reverse rotation axis
         self._stopflag = False   # Control loop stop flag. Once set, loop will terminate.
         self._enabled = False   # Leg control enabled. When disabled, leg is limp.
@@ -57,20 +58,19 @@ class Leg(object):
     @property
     def pos(self):
         """Get position in radians"""
-        pos = self._motor.pos if not self._reverse else self.reverse_pos(self._motor.pos)
+        pos = self._motor.pos[self._index] if not self._reverse else self.reverse_pos(self._motor.pos[self._index])
         if self._zero is not None:
             pos = (pos - self._zero) % (2*pi)
         return pos
 
     def stop(self):
         """Stop control thread"""
-        self._log.info("Stopping")
-        self._motor.stop()
         self._stopflag = True
+        self._log.info("Stop flag set")
 
     def disable(self):
         """Disable leg. This does not clear the leg's zero angle, but the leg should go limp."""
-        self._motor.disable()
+        self._motor.disable(self._index)
         self._vel_sp = None
         self._pos_sp = None
         self._enabled = False
@@ -78,17 +78,17 @@ class Leg(object):
 
     def enable(self):
         """Enable leg"""
-        self._motor.enable()
+        self._motor.enable(self._index)
         self._enabled = True
         self._log.info("Enabled")
 
     def set_vel_sp(self, vel):
         """Set velocity in radians/second"""
-        self._motor.set_vel_sp(vel)
+        self._motor.set_vel_sp(self._index, vel)
 
     def set_zero(self):
         """Set leg zero angle"""
-        self._zero = self._motor.pos if not self._reverse else self.reverse_pos(self._motor.pos)
+        self._zero = self._motor.pos[self._index] if not self._reverse else self.reverse_pos(self._motor.pos[self._index])
         self._vel_sp = 0
         self._pos_sp = None
         self._on_sp = True
@@ -130,8 +130,8 @@ class Leg(object):
             now = time.time()
             update_count += 1
             if now - last_update > 1:
-                self._log.debug("Motor pos: {:.3f} Pos: {:.2f} Zero: {:.3f} Setpoint_P: {:.3f} Enabled: {} Control freq: {} Hz".format(
-                    self._motor.pos,
+                self._log.debug("mp: {:.3f} p: {:.2f} z: {:.3f} spp: {:.3f} en: {} freq: {} Hz".format(
+                    self._motor.pos[self._index],
                     self.pos,
                     self._zero if self._zero is not None else -1,
                     self._pos_sp if self._pos_sp is not None else -1,
@@ -159,7 +159,7 @@ class Leg(object):
 
             # If setting velocity only, do that.
             if pos_sp is None:
-                self._motor.set_vel_sp(vel_sp)
+                self._motor.set_vel_sp(self._index, vel_sp)
                 #self._log.info("Setting velocity: {}".format(vel_sp))
                 continue
 
@@ -179,19 +179,24 @@ class Leg(object):
                     self._on_sp = False   # No longer on target
                 elif abs(err) > self._hys_lo:
                     s = -1 if err < 0 else 1
-                    self._motor.set_vel_sp(abs(vel_sp) * s)
+                    self._motor.set_vel_sp(self._index, abs(vel_sp) * s)
                 else:
-                    self._motor.set_vel_sp(0)
+                    self._motor.set_vel_sp(self._index, 0)
 
             if not self._on_sp:
                 if abs(err) > self._hys_lo:
-                    self._motor.set_vel_sp(vel_sp)   # No matter what, move in specified direction
+                    self._motor.set_vel_sp(self._index, vel_sp)   # No matter what, move in specified direction
                 else:
                     self._on_sp = True   # On target
-                    self._motor.set_vel_sp(0)
+                    self._motor.set_vel_sp(self._index, 0)
 
         # Disable once done running
         self.disable()
+
+        # Stop motor
+        self._motor.stop()
+
+        self._log.debug("EXIT")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Flowergirl leg tester')
@@ -202,12 +207,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Motor control
-    mser = MotorSerial(args.dev, args.baud, 5)
+    mser = MotorSerial(args.dev, args.baud, 1)
     loop = asyncio.get_event_loop()
-    m = Motor(loop, mser, args.index, debug=True)
+    m = Motor(loop, mser, debug=True)
 
     # Leg control
-    l = Leg(loop, "Test", m, reverse=args.reverse, debug=True)
+    l = Leg(loop, "Test", m, args.index, reverse=args.reverse, debug=True)
     l.enable()
 
     # Process inputs
