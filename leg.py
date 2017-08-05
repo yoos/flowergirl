@@ -44,6 +44,10 @@ class Leg(object):
         self._task = self._loop.create_task(self.run())
 
     @property
+    def fake(self):
+        return self._motor.fake
+
+    @property
     def task(self):
         return self._task
 
@@ -58,6 +62,8 @@ class Leg(object):
     @property
     def pos(self):
         """Get position in radians"""
+        if self.fake:
+            return self._pos_sp
         pos = self._motor.pos[self._index] if not self._reverse else self.reverse_pos(self._motor.pos[self._index])
         if self._zero is not None:
             pos = (pos - self._zero) % (2*pi)
@@ -132,7 +138,7 @@ class Leg(object):
             if now - last_update > 1:
                 self._log.debug("mp: {:.3f}  p: {:.2f}  z: {:.3f}  spp: {:.3f}  en: {}  freq: {} Hz".format(
                     self._motor.pos[self._index],
-                    self.pos,
+                    self.pos if self.pos is not None else -1,
                     self._zero if self._zero is not None else -1,
                     self._pos_sp if self._pos_sp is not None else -1,
                     self._enabled,
@@ -143,12 +149,6 @@ class Leg(object):
             # If disabled or we have no velocity setpoint, don't do anything.
             if not self._enabled or self._vel_sp is None:
                 await asyncio.sleep(0.05)
-                continue
-
-            # DEBUG(syoo): for testing
-            if self._name not in ["L1","Test"]:
-                self._on_sp = True
-                await asyncio.sleep(0.1)
                 continue
 
             await asyncio.sleep(0.004)   # TODO(syoo): properly implement control freq
@@ -237,11 +237,14 @@ if __name__ == "__main__":
             except Exception as e:
                 print("Invalid input")
 
-    loop.create_task(proc_inputs())   # This still crashes and burns when the event loop stops..
+    input_task = loop.create_task(proc_inputs())
 
     # Stop leg control loop on SIGINT
     signal.signal(signal.SIGINT, lambda s,f: l.stop())
 
+    # Gather all tasks to wait on
+    future = asyncio.gather(l.task, m.task, input_task)
+
     # Loop!
-    loop.run_until_complete(l.task)
+    loop.run_until_complete(future)
     loop.close()

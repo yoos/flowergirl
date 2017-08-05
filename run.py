@@ -387,15 +387,15 @@ if __name__ == "__main__":
     loop = asyncio.get_event_loop()
 
     # TODO(syoo): un-fake the other three motors once we have hardware
-    ser1 = MotorSerial("/dev/m1", 230400, 2)
+    ser1 = MotorSerial("/dev/m1", 230400, 2, fake=True)
     ser2 = MotorSerial("/dev/m2", 230400, 2, fake=True)
     ser3 = MotorSerial("/dev/m3", 230400, 2, fake=True)
     ser4 = MotorSerial("/dev/m4", 230400, 2, fake=True)
 
     m1  = Motor(loop, ser1, debug=True)
-    m2  = Motor(loop, ser2, fake=True)
-    m3  = Motor(loop, ser3, fake=True)
-    mcn = Motor(loop, ser4, fake=True)
+    m2  = Motor(loop, ser2)
+    m3  = Motor(loop, ser3)
+    mcn = Motor(loop, ser4)
 
     l1 = Leg(loop, "L1", m1, 0, debug=True)
     l2 = Leg(loop, "L2", m2, 0)

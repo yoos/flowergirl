@@ -53,6 +53,10 @@ class MotorSerial(object):
     def name(self):
         return self._port
 
+    @property
+    def fake(self):
+        return self._fake
+
     def stop(self):
         self._stopflag = True
         if self.ser is None: return
@@ -166,10 +170,9 @@ class MotorSerial(object):
         return b"\xe0\x01\x02\x03\x04\x05\x06\x07\x08\x09"   # HACK(syoo)
 
 class Motor(object):
-    def __init__(self, loop, mser, debug=False, fake=False):
+    def __init__(self, loop, mser, debug=False):
         self._loop = loop
         self._mser = mser   # MotorSerial instance
-        self._fake = fake
         self._stopflag = False
 
         self._read_requests = []
@@ -189,6 +192,10 @@ class Motor(object):
     @property
     def name(self):
         return self._mser.name
+
+    @property
+    def fake(self):
+        return self._mser.fake
 
     @property
     def task(self):
@@ -247,7 +254,7 @@ class Motor(object):
             if r[0] == '\xe0':
                 self._log.error("Received error: {}".format(r))
 
-            await asyncio.sleep(0.002)
+            #await asyncio.sleep(0.002)
 
         self._disable(0)
         self._disable(1)
